@@ -176,9 +176,12 @@ def require_setup_or_reset():
     if not User.query.first() and not oidc_enabled() and request.endpoint != 'auth_bp.setup':
         return redirect(url_for('auth_bp.setup'))
 
-    # If a force_reset flag is present, require reset
+    # If a force_reset flag is present, require local users to reset their password.
+    # OIDC-authenticated users are not subject to the local password reset flow.
     flag_path = os.path.join(current_app.instance_path, 'force_reset.flag')
     if os.path.exists(flag_path) and local_login_enabled():
+        if current_user.is_authenticated and getattr(current_user, 'auth_source', 'local') != 'local':
+            return  # OIDC users are exempt from the local force-reset
         allowed_endpoints = ['auth_bp.reset_password', 'auth_bp.login', 'auth_bp.setup', 'auth_bp.oidc_login', 'auth_bp.oidc_callback', 'static']
         if request.endpoint not in allowed_endpoints:
             return redirect(url_for('auth_bp.reset_password'))

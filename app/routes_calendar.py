@@ -3,7 +3,6 @@ from flask_login import login_required, current_user
 from datetime import datetime
 from .models import db, Batch, CalendarEvent
 from app.decorators import role_required
-from app import csrf  # For csrf.exempt
 from config import Config
 
 calendar_bp = Blueprint('calendar_bp', __name__)
@@ -55,7 +54,6 @@ def calendar_events():
     return jsonify(events)
 
 @calendar_bp.route('/calendar-event', methods=['POST'])
-@csrf.exempt
 @login_required
 @role_required(Config.RBAC_ADMIN_ROLE, Config.RBAC_EDITOR_ROLE)
 def create_calendar_event():
@@ -73,7 +71,6 @@ def create_calendar_event():
     return jsonify(success=True)
 
 @calendar_bp.route('/calendar-event/<int:event_id>', methods=['PUT'])
-@csrf.exempt
 @login_required
 @role_required(Config.RBAC_ADMIN_ROLE, Config.RBAC_EDITOR_ROLE)
 def update_calendar_event(event_id):
@@ -87,7 +84,6 @@ def update_calendar_event(event_id):
     return jsonify(success=True)
 
 @calendar_bp.route('/calendar-event/<int:event_id>', methods=['DELETE'])
-@csrf.exempt
 @login_required
 @role_required(Config.RBAC_ADMIN_ROLE)
 def delete_calendar_event(event_id):

@@ -36,6 +36,7 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+  const csrfToken = {{ csrf_token() | tojson }};
   const calendarEl = document.getElementById('calendar');
 
   const calendar = new FullCalendar.Calendar(calendarEl, {
@@ -106,7 +107,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     await fetch(url, {
       method: method,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
       body: JSON.stringify(data)
     });
 
@@ -117,7 +118,7 @@ document.addEventListener('DOMContentLoaded', function () {
   document.getElementById('deleteBtn').addEventListener('click', async function () {
     const id = document.getElementById('event_id').value;
     if (id && confirm('Delete this event?')) {
-      await fetch(`/app/calendar-event/${id}`, { method: 'DELETE' });
+      await fetch(`/app/calendar-event/${id}`, { method: 'DELETE', headers: { 'X-CSRFToken': csrfToken } });
       closeModal();
       calendar.refetchEvents();
     }

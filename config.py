@@ -93,8 +93,19 @@ class Config:
     ])
     DISABLE_LOCAL_LOGIN = env_bool('DISABLE_LOCAL_LOGIN', OIDC_CONFIGURED)
 
-    if OIDC_CONFIGURED and 'groups' not in OIDC_SCOPE_SET:
-        raise RuntimeError("OIDC_SCOPES must include 'groups' for group-based authorization.")
+    # Warn at startup if the role-routing claim is not obviously covered by the
+    # requested scopes.  This is best-effort only: many providers expose a claim
+    # through a differently-named scope (e.g. `profile` exposes `name`), so we
+    # do not hard-fail here.  A missing claim will be handled gracefully at sign-in
+    # time by map_role(), which will fall back to OIDC_DEFAULT_ROLE.
+    _role_claim_hint = OIDC_ROLE_CLAIM or OIDC_GROUPS_CLAIM
+    if OIDC_CONFIGURED and _role_claim_hint and _role_claim_hint not in OIDC_SCOPE_SET:
+        import warnings
+        warnings.warn(
+            f"OIDC_SCOPES does not include '{_role_claim_hint}'. "
+            "Role mapping may fall back to OIDC_DEFAULT_ROLE if the claim is absent from tokens.",
+            stacklevel=1,
+        )
 
     if OIDC_CONFIGURED and not OIDC_ADMIN_GROUPS:
         raise RuntimeError('OIDC_ADMIN_GROUPS must be set for OIDC authorization.')
