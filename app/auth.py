@@ -244,7 +244,7 @@ def setup():
 @limiter.limit("5 per minute")
 def login():
     if oidc_enabled():
-        return oidc_login_redirect()
+        return render_template('login.html')
 
     if request.method == 'POST':
         username = request.form['username']

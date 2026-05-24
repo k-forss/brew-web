@@ -6,7 +6,7 @@ from flask_login import LoginManager, current_user
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from authlib.integrations.flask_client import OAuth
-from app.utils import check_for_updates, current_user_can_edit, current_user_is_admin, get_unit_preference, local_login_enabled, local_user_role_options, oidc_enabled, oidc_only_mode
+from app.utils import check_for_updates, current_user_can_edit, current_user_is_admin, get_unit_preference, local_login_enabled, local_user_role_options, oidc_enabled
 from config import Config
 from markupsafe import Markup, escape
 import traceback, os, logging, click
@@ -93,7 +93,6 @@ def create_app():
             "update_info": check_for_updates(),
             "oidc_enabled": oidc_enabled(),
             "local_login_enabled": local_login_enabled(),
-            "oidc_only_mode": oidc_only_mode(),
             "rbac_admin_role": Config.RBAC_ADMIN_ROLE,
             "rbac_editor_role": Config.RBAC_EDITOR_ROLE,
             "rbac_user_role": Config.RBAC_USER_ROLE,

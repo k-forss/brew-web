@@ -92,7 +92,8 @@ OIDC_USER_GROUPS=brew-users
 OIDC_DEFAULT_ROLE=user
 OIDC_ALLOW_UNMAPPED_USERS=true
 
-DISABLE_LOCAL_LOGIN=false
+# DISABLE_LOCAL_LOGIN is computed automatically: it equals true when OIDC is
+# configured and false otherwise. It is not a configurable environment variable.
 LOCAL_USER_ROLES=admin,editor,user
 ```
 

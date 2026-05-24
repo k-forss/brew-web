@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import current_user, login_required
 from .models import db, Recipe, Measurement, Batch, Ingredient, User
 from datetime import datetime
-from app.utils import role_required, c_to_f, get_unit_preference, oidc_only_mode
+from app.utils import role_required, c_to_f, get_unit_preference, oidc_enabled
 from config import Config
 
 routes = Blueprint("routes", __name__, url_prefix="/app")
@@ -10,7 +10,7 @@ routes = Blueprint("routes", __name__, url_prefix="/app")
 # === AUTH ===
 @routes.route('/login')
 def login():
-    if oidc_only_mode():
+    if oidc_enabled():
         return redirect(url_for('auth_bp.oidc_login'))
     return redirect(url_for('auth_bp.login'))
 
