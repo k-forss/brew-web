@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_required
 from app.models import db, Recipe, Ingredient, Yeast
 from app.utils import role_required, get_unit_preference, gallons_to_liters
+from config import Config
 
 recipes_bp = Blueprint("recipes_bp", __name__)
 
@@ -22,7 +23,7 @@ def index():
 
 @recipes_bp.route('/recipes/new', methods=['GET', 'POST'])
 @login_required
-@role_required('admin', 'editor')
+@role_required(Config.RBAC_ADMIN_ROLE, Config.RBAC_EDITOR_ROLE)
 def new_recipe():
     if request.method == 'POST':
         name = request.form['name']
@@ -108,7 +109,7 @@ def view_recipe(recipe_id):
 
 @recipes_bp.route('/recipes/<int:recipe_id>/edit', methods=['GET', 'POST'])
 @login_required
-@role_required('admin', 'editor')
+@role_required(Config.RBAC_ADMIN_ROLE, Config.RBAC_EDITOR_ROLE)
 def edit_recipe(recipe_id):
     recipe = Recipe.query.get_or_404(recipe_id)
     if request.method == 'POST':
@@ -151,7 +152,7 @@ def edit_recipe(recipe_id):
 
 @recipes_bp.route('/recipes/<int:recipe_id>/delete', methods=['POST'])
 @login_required
-@role_required('admin')
+@role_required(Config.RBAC_ADMIN_ROLE)
 def delete_recipe(recipe_id):
     recipe = Recipe.query.get_or_404(recipe_id)
     db.session.delete(recipe)

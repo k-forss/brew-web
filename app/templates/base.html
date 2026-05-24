@@ -18,7 +18,7 @@
                 </a>
                 <ul>
                     <li><a href="{{ url_for('routes.index') }}">🏠 Home/Recipes</a></li>
-                    {% if current_user.is_authenticated and (current_user.role == 'admin' or current_user.role == 'editor') %}
+                    {% if current_user.is_authenticated and current_user_can_edit %}
                         <li><a href="{{ url_for('routes.recipes_bp.new_recipe') }}">➕ Add Recipe</a></li>
                         <li><a href="{{ url_for('routes.batches_bp.new_batch') }}">➕ Add Batch</a></li>
                     {% endif %}
@@ -29,11 +29,13 @@
                     <li><a href="{{ url_for('routes.calculator_bp.calculator_index') }}">🧮 Calculators</a></li>
                     <li><a href="javascript:void(0);" onclick="toggleDropdown('settings-menu')">⚙️ Settings ▾</a>
 						<ul id="settings-menu" style="display: {{ 'block' if request.args.get('open') == 'settings' else 'none' }}; list-style: none; margin-left: 15px; padding-left: 0;">
-						{% if current_user.is_authenticated and current_user.role == 'admin' %}
+            {% if current_user.is_authenticated and current_user_is_admin %}
 						  <li><a href="{{ url_for('routes.admin_bp.admin_settings', open='settings') }}">Administration</a></li>
 						{% endif %}
 						<li><a href="{{ url_for('routes.settings_bp.settings_customize', open='settings') }}">Customize</a></li>
+            {% if local_login_enabled %}
 						<li><a href="{{ url_for('routes.settings_bp.settings_password', open='settings') }}">Change Password</a></li>
+            {% endif %}
 						<li><a href="{{ url_for('auth_bp.logout') }}">🚪 Logout</a></li>
 					  </ul>
 					</li>

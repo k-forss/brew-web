@@ -77,7 +77,29 @@ Access at http://localhost:4452
 Key env:
 ```env
 SECRET_KEY=changeme-in-production
+
+OIDC_ENABLED=true
+OIDC_DISCOVERY_URL=https://idp.example/.well-known/openid-configuration
+OIDC_CLIENT_ID=brew-web
+OIDC_CLIENT_SECRET=replace-me
+OIDC_SCOPES=openid profile email groups
+OIDC_GROUPS_CLAIM=groups
+
+OIDC_ROLE_CLAIM=groups
+OIDC_ADMIN_GROUPS=brew-admins
+OIDC_EDITOR_GROUPS=brew-editors
+OIDC_USER_GROUPS=brew-users
+OIDC_DEFAULT_ROLE=user
+OIDC_ALLOW_UNMAPPED_USERS=true
+
+DISABLE_LOCAL_LOGIN=false
+LOCAL_USER_ROLES=admin,editor,user
 ```
+
+- Brew stores internal roles as `admin`, `editor`, and `user`.
+- OIDC role routing is env-driven: `OIDC_ROLE_CLAIM` selects the claim to inspect, and `OIDC_*_GROUPS` map external values to Brew roles.
+- `OIDC_DEFAULT_ROLE` and `OIDC_ALLOW_UNMAPPED_USERS` control what happens when the configured claim does not match an explicit route.
+- `LOCAL_USER_ROLES` controls which roles the admin UI can create for local accounts.
 
 ---
 

@@ -11,6 +11,7 @@ from app.utils import (
     f_to_c,
     get_unit_preference,
 )
+from config import Config
 
 
 batches_bp = Blueprint('batches_bp', __name__, url_prefix='/batches')
@@ -59,7 +60,7 @@ def view_batch(batch_id):
 
 @batches_bp.route('/<int:batch_id>/edit', methods=['GET', 'POST'])
 @login_required
-@role_required('admin', 'editor')
+@role_required(Config.RBAC_ADMIN_ROLE, Config.RBAC_EDITOR_ROLE)
 def edit_batch(batch_id):
     batch = Batch.query.get_or_404(batch_id)
     recipes = Recipe.query.order_by(Recipe.name).all()
@@ -149,7 +150,7 @@ def edit_batch(batch_id):
     
 @batches_bp.route('/<int:batch_id>/delete', methods=['POST'])
 @login_required
-@role_required('admin')
+@role_required(Config.RBAC_ADMIN_ROLE)
 def delete_batch(batch_id):
     batch = Batch.query.get_or_404(batch_id)
     db.session.delete(batch)
@@ -159,7 +160,7 @@ def delete_batch(batch_id):
 
 @batches_bp.route('/new', methods=['GET', 'POST'])
 @login_required
-@role_required('admin', 'editor')
+@role_required(Config.RBAC_ADMIN_ROLE, Config.RBAC_EDITOR_ROLE)
 def new_batch():
     recipes = Recipe.query.order_by(Recipe.name).all()
     yeasts = Yeast.query.order_by(Yeast.name).all()

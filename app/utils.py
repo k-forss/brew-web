@@ -6,7 +6,36 @@ from config import Config
 import re
 import json
 import os
-from sqlalchemy.exc import ProgrammingError
+
+
+def normalize_role(role):
+    if role is None:
+        return None
+    return str(role).strip().lower()
+
+
+def role_label(role):
+    normalized = normalize_role(role)
+    return Config.RBAC_ROLE_LABELS.get(normalized, normalized.title() if normalized else '')
+
+
+def local_user_role_options():
+    return [(role, role_label(role)) for role in Config.LOCAL_USER_ROLES]
+
+
+def current_user_has_role(*roles):
+    if not getattr(current_user, 'is_authenticated', False):
+        return False
+    allowed_roles = {normalize_role(role) for role in roles}
+    return normalize_role(current_user.role) in allowed_roles
+
+
+def current_user_is_admin():
+    return current_user_has_role(Config.RBAC_ADMIN_ROLE)
+
+
+def current_user_can_edit():
+    return current_user_has_role(Config.RBAC_ADMIN_ROLE, Config.RBAC_EDITOR_ROLE)
 
 def is_strong_password(password):
     return (
@@ -20,11 +49,26 @@ def role_required(*roles):
     def wrapper(fn):
         @wraps(fn)
         def decorated_view(*args, **kwargs):
-            if not current_user.is_authenticated or current_user.role not in roles:
+            if not current_user.is_authenticated:
+                abort(403)
+            allowed_roles = {normalize_role(role) for role in roles}
+            if normalize_role(current_user.role) not in allowed_roles:
                 abort(403)
             return fn(*args, **kwargs)
         return decorated_view
     return wrapper
+
+
+def oidc_enabled():
+    return current_app.config.get('OIDC_CONFIGURED', False)
+
+
+def local_login_enabled():
+    return not current_app.config.get('DISABLE_LOCAL_LOGIN', False)
+
+
+def oidc_only_mode():
+    return oidc_enabled() and not local_login_enabled()
 
 def check_for_updates():
     try:
@@ -59,16 +103,6 @@ def get_unit_preference():
         settings = AppSettings.query.first()
         if settings and settings.unit_preference in ('imperial', 'metric'):
             return settings.unit_preference
-    except ProgrammingError:
-        try:
-            from app import db
-            db.session.execute("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS unit_preference VARCHAR(10) DEFAULT 'imperial';")
-            db.session.commit()
-            settings = AppSettings.query.first()
-            if settings and settings.unit_preference in ('imperial', 'metric'):
-                return settings.unit_preference
-        except Exception:
-            return 'imperial'
     except Exception:
         pass
     return 'imperial'

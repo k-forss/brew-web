@@ -4,6 +4,7 @@ from datetime import datetime
 from .models import db, Batch, CalendarEvent
 from app.decorators import role_required
 from app import csrf  # For csrf.exempt
+from config import Config
 
 calendar_bp = Blueprint('calendar_bp', __name__)
 
@@ -56,7 +57,7 @@ def calendar_events():
 @calendar_bp.route('/calendar-event', methods=['POST'])
 @csrf.exempt
 @login_required
-@role_required('admin', 'editor')
+@role_required(Config.RBAC_ADMIN_ROLE, Config.RBAC_EDITOR_ROLE)
 def create_calendar_event():
     data = request.get_json()
     event = CalendarEvent(
@@ -74,7 +75,7 @@ def create_calendar_event():
 @calendar_bp.route('/calendar-event/<int:event_id>', methods=['PUT'])
 @csrf.exempt
 @login_required
-@role_required('admin', 'editor')
+@role_required(Config.RBAC_ADMIN_ROLE, Config.RBAC_EDITOR_ROLE)
 def update_calendar_event(event_id):
     event = CalendarEvent.query.get_or_404(event_id)
     data = request.get_json()
@@ -88,7 +89,7 @@ def update_calendar_event(event_id):
 @calendar_bp.route('/calendar-event/<int:event_id>', methods=['DELETE'])
 @csrf.exempt
 @login_required
-@role_required('admin')
+@role_required(Config.RBAC_ADMIN_ROLE)
 def delete_calendar_event(event_id):
     event = CalendarEvent.query.get_or_404(event_id)
     db.session.delete(event)

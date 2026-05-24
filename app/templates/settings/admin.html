@@ -33,17 +33,23 @@
 {% endif %}
 
 <h2>Users</h2>
+{% if not local_login_enabled %}
+<p>User accounts are provisioned through OIDC SSO. Roles are synchronized from OIDC claims when users sign in.</p>
+{% endif %}
 <table>
   <tr>
     <th>Username</th>
     <th>Role</th>
-    <th>Actions</th>
+    <th>Auth Source</th>
+    <th>{{ 'Actions' if local_login_enabled else 'Provisioning' }}</th>
   </tr>
   {% for user in users %}
   <tr>
     <td>{{ user.username }}</td>
-    <td>{{ user.role }}</td>
+    <td>{{ role_label(user.role) }}</td>
+    <td>{{ user.auth_source }}</td>
     <td>
+      {% if local_login_enabled %}
       <form action="{{ url_for('routes.admin_bp.delete_user', user_id=user.id) }}" method="post" style="display:inline;">
         <input name="csrf_token" type="hidden" value="{{ csrf_token() }}"/>
         <button type="submit">🗑️ Delete</button>
@@ -53,11 +59,15 @@
         <input name="password" placeholder="New Password" required>
         <button type="submit">🔒 Reset Password</button>
       </form>
+      {% else %}
+      <span>Managed by SSO</span>
+      {% endif %}
     </td>
   </tr>
   {% endfor %}
 </table>
 
+{% if local_login_enabled %}
 <h3>Create New User</h3>
 <form action="{{ url_for('routes.admin_bp.create_user') }}" method="post">
   <input name="csrf_token" type="hidden" value="{{ csrf_token() }}"/>
@@ -65,12 +75,13 @@
   <input name="password" type="password" placeholder="Password" required>
   <select name="role" required>
     <option value="">-- Role --</option>
-    <option value="admin">Admin</option>
-    <option value="editor">Editor</option>
-    <option value="viewer">Viewer</option>
+    {% for role_value, role_name in local_role_options %}
+    <option value="{{ role_value }}">{{ role_name }}</option>
+    {% endfor %}
   </select>
   <button type="submit">➕ Add User</button>
 </form>
+{% endif %}
 
 <hr>
 <h2>App Settings</h2>

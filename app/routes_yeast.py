@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import login_required
 from app.utils import role_required
 from app.models import Yeast, db
+from config import Config
 
 yeast_bp = Blueprint("yeast_bp", __name__, url_prefix="/yeasts")
 
@@ -21,7 +22,7 @@ def list_yeasts():
 
 @yeast_bp.route("/restore", methods=["POST"])
 @login_required
-@role_required("admin")
+@role_required(Config.RBAC_ADMIN_ROLE)
 def restore_yeasts():
     default_yeasts = [
     {"name": "Lalvin 71B-1122", "alcohol_type": "Mead", "tolerance": "14%", "strength": "Medium", "sweetness_retention": "Moderate", "flocculation": "Low", "attenuation": "70%", "notes": "Fruity esters; smooths acidity."},
@@ -54,7 +55,7 @@ def restore_yeasts():
 
 @yeast_bp.route("/add", methods=["POST"])
 @login_required
-@role_required("admin")
+@role_required(Config.RBAC_ADMIN_ROLE)
 def add_yeast():
     yeast = Yeast(
         name=request.form.get("name"),
@@ -73,7 +74,7 @@ def add_yeast():
 
 @yeast_bp.route("/delete/<int:yeast_id>", methods=["POST"])
 @login_required
-@role_required("admin")
+@role_required(Config.RBAC_ADMIN_ROLE)
 def delete_yeast(yeast_id):
     yeast = Yeast.query.get_or_404(yeast_id)
     db.session.delete(yeast)
@@ -83,7 +84,7 @@ def delete_yeast(yeast_id):
 
 @yeast_bp.route("/edit/<int:yeast_id>", methods=["GET", "POST"])
 @login_required
-@role_required("admin")
+@role_required(Config.RBAC_ADMIN_ROLE)
 def edit_yeast(yeast_id):
     yeast = Yeast.query.get_or_404(yeast_id)
     if request.method == "POST":

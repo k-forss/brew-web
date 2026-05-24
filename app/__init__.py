@@ -5,7 +5,8 @@ from flask_migrate import Migrate
 from flask_login import LoginManager, current_user
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from app.utils import check_for_updates, get_unit_preference
+from authlib.integrations.flask_client import OAuth
+from app.utils import check_for_updates, current_user_can_edit, current_user_is_admin, get_unit_preference, local_login_enabled, local_user_role_options, oidc_enabled, oidc_only_mode
 from config import Config
 from markupsafe import Markup, escape
 import traceback, os, logging, click
@@ -18,6 +19,7 @@ migrate = Migrate()
 login_manager = LoginManager()
 limiter = Limiter(get_remote_address)
 csrf = CSRFProtect()
+oauth = OAuth()
 
 def create_app():
     app = Flask(__name__)
@@ -27,7 +29,9 @@ def create_app():
     migrate.init_app(app, db)
     login_manager.init_app(app)
     login_manager.login_view = 'auth_bp.login'
+    limiter.init_app(app)
     csrf.init_app(app)
+    oauth.init_app(app)
 
     from .models import User
 
@@ -35,19 +39,23 @@ def create_app():
     def root():
         return redirect('/app/')
 
+    @app.route('/health')
+    def health():
+        return {'status': 'ok', 'version': Config.VERSION}
+
     @login_manager.user_loader
     def load_user(user_id):
         return User.query.get(int(user_id))
 
     @app.before_request
     def require_setup():
-        allowed = {'auth_bp.setup', 'static'}
+        allowed = {'auth_bp.setup', 'auth_bp.login', 'auth_bp.oidc_login', 'auth_bp.oidc_callback', 'static', 'health'}
 
         if request.endpoint is None or request.endpoint in allowed:
             return
 
         try:
-            if not User.query.first():
+            if not User.query.first() and not oidc_enabled():
                 return redirect(url_for("auth_bp.setup"))
         except Exception:
             return render_template("errors/import_wait.html"), 503
@@ -82,7 +90,16 @@ def create_app():
     def inject_globals():
         return {
             "app_version": Config.VERSION,
-            "update_info": check_for_updates()
+            "update_info": check_for_updates(),
+            "oidc_enabled": oidc_enabled(),
+            "local_login_enabled": local_login_enabled(),
+            "oidc_only_mode": oidc_only_mode(),
+            "rbac_admin_role": Config.RBAC_ADMIN_ROLE,
+            "rbac_editor_role": Config.RBAC_EDITOR_ROLE,
+            "rbac_user_role": Config.RBAC_USER_ROLE,
+            "current_user_is_admin": current_user_is_admin(),
+            "current_user_can_edit": current_user_can_edit(),
+            "local_role_options": local_user_role_options(),
         }
 
     @app.template_filter('nl2br')
