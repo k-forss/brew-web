@@ -91,7 +91,10 @@ class Config:
         OIDC_CLIENT_ID,
         OIDC_CLIENT_SECRET,
     ])
-    DISABLE_LOCAL_LOGIN = env_bool('DISABLE_LOCAL_LOGIN', OIDC_CONFIGURED)
+    # No hybrid mode: local auth and OIDC are mutually exclusive.
+    # Local login is always disabled when OIDC is configured; this is not
+    # overridable via environment variable to prevent accidental hybrid deployments.
+    DISABLE_LOCAL_LOGIN = OIDC_CONFIGURED
 
     # Warn at startup if the role-routing claim is not obviously covered by the
     # requested scopes.  This is best-effort only: many providers expose a claim
@@ -115,6 +118,3 @@ class Config:
 
     if not set(LOCAL_USER_ROLES).issubset({RBAC_ADMIN_ROLE, RBAC_EDITOR_ROLE, RBAC_USER_ROLE}):
         raise RuntimeError('LOCAL_USER_ROLES must only contain admin, editor, or user.')
-
-    if DISABLE_LOCAL_LOGIN and not OIDC_CONFIGURED:
-        raise RuntimeError('DISABLE_LOCAL_LOGIN requires a complete OIDC configuration.')

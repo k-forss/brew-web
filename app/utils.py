@@ -66,10 +66,6 @@ def oidc_enabled():
 def local_login_enabled():
     return not current_app.config.get('DISABLE_LOCAL_LOGIN', False)
 
-
-def oidc_only_mode():
-    return oidc_enabled() and not local_login_enabled()
-
 def check_for_updates():
     try:
         latest_url = "https://raw.githubusercontent.com/anndrox/brew-web/main/VERSION"

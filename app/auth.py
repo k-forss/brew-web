@@ -6,7 +6,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_user, logout_user, login_required, current_user
 from . import db, oauth, limiter
 from .models import User
-from .utils import current_user_is_admin, is_strong_password, local_login_enabled, normalize_role, oidc_enabled, oidc_only_mode
+from .utils import current_user_is_admin, is_strong_password, local_login_enabled, normalize_role, oidc_enabled
 from config import Config
 
 auth_bp = Blueprint('auth_bp', __name__)
@@ -176,12 +176,10 @@ def require_setup_or_reset():
     if not User.query.first() and not oidc_enabled() and request.endpoint != 'auth_bp.setup':
         return redirect(url_for('auth_bp.setup'))
 
-    # If a force_reset flag is present, require local users to reset their password.
-    # OIDC-authenticated users are not subject to the local password reset flow.
+    # If a force_reset flag is present, require all local users to reset their password.
+    # In OIDC mode local_login_enabled() is always False so this block is never entered.
     flag_path = os.path.join(current_app.instance_path, 'force_reset.flag')
     if os.path.exists(flag_path) and local_login_enabled():
-        if current_user.is_authenticated and getattr(current_user, 'auth_source', 'local') != 'local':
-            return  # OIDC users are exempt from the local force-reset
         allowed_endpoints = ['auth_bp.reset_password', 'auth_bp.login', 'auth_bp.setup', 'auth_bp.oidc_login', 'auth_bp.oidc_callback', 'static']
         if request.endpoint not in allowed_endpoints:
             return redirect(url_for('auth_bp.reset_password'))
@@ -245,7 +243,7 @@ def setup():
 @auth_bp.route('/login', methods=['GET', 'POST'])
 @limiter.limit("5 per minute")
 def login():
-    if oidc_only_mode():
+    if oidc_enabled():
         return oidc_login_redirect()
 
     if request.method == 'POST':
@@ -311,7 +309,7 @@ def logout():
 def reset_password():
     if not local_login_enabled():
         flash('Password management is handled by your identity provider.', 'info')
-        if oidc_only_mode():
+        if oidc_enabled():
             return oidc_login_redirect()
         return redirect(url_for('auth_bp.login'))
 
