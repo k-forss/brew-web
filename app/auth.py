@@ -302,9 +302,20 @@ def setup():
         return redirect(url_for('auth_bp.login'))
 
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        confirm_password = request.form['confirm_password']  # ✅ new field
+        username = request.form.get('username', '')
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+
+        # Security: Validate required fields before processing
+        if not username:
+            flash('Username is required.', 'danger')
+            return redirect(url_for('auth_bp.setup'))
+        if not password:
+            flash('Password is required.', 'danger')
+            return redirect(url_for('auth_bp.setup'))
+        if not confirm_password:
+            flash('Password confirmation is required.', 'danger')
+            return redirect(url_for('auth_bp.setup'))
 
         if password != confirm_password:
             flash("Passwords do not match.", "danger")

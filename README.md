@@ -68,7 +68,7 @@ When OIDC mode is enabled:
 
 ### Breaking Changes (v1.4.0+)
 
-**R1: Calendar API now requires CSRF tokens**
+**Calendar API now requires CSRF tokens**
 
 All calendar API endpoints (`POST /calendar-event`, `PUT /calendar-event/<id>`, `DELETE /calendar-event/<id>`) now require CSRF token validation.
 

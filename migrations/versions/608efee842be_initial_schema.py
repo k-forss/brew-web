@@ -52,14 +52,9 @@ def ensure_user_compatibility(inspector):
     # Populate NULL values before setting NOT NULL (defensive, should not occur with server_default)
     op.execute("UPDATE \"user\" SET auth_source = 'local' WHERE auth_source IS NULL")
     op.execute("UPDATE \"user\" SET role = 'user' WHERE role IS NULL OR role = 'viewer'")
-    # Ensure existing users have is_admin set (default false, preserves existing admin status)
-    # Note: This sets all existing users to is_admin=false. Admins must be re-granted via OIDC claims or manual update.
-    # BREAKING CHANGE: This sets all existing users to is_admin=false.
-    # Pre-migration backup: SELECT id, email, is_admin FROM "user" WHERE is_admin = true;
-    # Recovery: UPDATE "user" SET is_admin = true WHERE email IN ('admin@example.com');
-    # Admins must be re-granted via OIDC claims or manual database update.
+    # Defensive: Clear NULL values before enforcing NOT NULL constraint
+    # This handles edge cases from prior migrations that added is_admin without server_default
     op.execute("UPDATE \"user\" SET is_admin = false WHERE is_admin IS NULL")
-    # Note: SET NOT NULL already enforced by column creation with nullable=False
     # These are kept as defensive checks for edge cases
     op.execute('ALTER TABLE "user" ALTER COLUMN auth_source SET NOT NULL')
     op.execute("ALTER TABLE \"user\" ALTER COLUMN role SET DEFAULT 'user'")

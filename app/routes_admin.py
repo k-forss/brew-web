@@ -82,9 +82,20 @@ def create_user():
         flash('User management is handled by your identity provider.', 'info')
         return redirect(url_for('routes.admin_bp.admin_settings'))
 
-    username = request.form.get('username')
+    username = request.form.get('username', '')
     password = request.form.get('password', '')
-    role = normalize_role(request.form.get('role'))
+    role = normalize_role(request.form.get('role', ''))
+
+    # Security: Validate required fields before processing
+    if not username:
+        flash('Username is required.', 'danger')
+        return redirect(url_for('routes.admin_bp.admin_settings'))
+    if not password:
+        flash('Password is required.', 'danger')
+        return redirect(url_for('routes.admin_bp.admin_settings'))
+    if not role:
+        flash('Role is required.', 'danger')
+        return redirect(url_for('routes.admin_bp.admin_settings'))
 
     if role not in set(Config.LOCAL_USER_ROLES):
         flash('Invalid role.', 'danger')

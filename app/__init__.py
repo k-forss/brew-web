@@ -33,6 +33,10 @@ def create_app():
     login_manager.login_view = 'auth_bp.login'
     # Make Redis optional with memory fallback
     # Try Redis first, fall back to memory storage if unavailable
+    # WARNING: Memory fallback is NOT suitable for production deployments.
+    # For production deployments with multiple instances, Redis is REQUIRED for effective rate limiting.
+    # Memory storage only works for single-instance deployments and will not share rate limit
+    # state across multiple application instances or survive restarts.
     global limiter
     redis_uri = "redis://redis:6379"
     try:
@@ -44,6 +48,10 @@ def create_app():
         limiter = Limiter(get_remote_address, storage_uri="memory://")
         limiter.init_app(app)
         app.logger.warning(f'⚠️ Rate limiter using memory storage (Redis unavailable): {e}')
+        # Check if production deployment requires Redis
+        if app.config.get('REQUIRE_REDIS_FOR_RATE_LIMITING', False):
+            app.logger.error('PRODUCTION_REDIS_REQUIRED: Rate limiting requires Redis in production. Set REQUIRE_REDIS_FOR_RATE_LIMITING=False only for development.')
+            raise RuntimeError('Redis is required for rate limiting in production deployments')
     csrf.init_app(app)
     oauth.init_app(app)
 
