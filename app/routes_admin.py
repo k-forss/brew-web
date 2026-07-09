@@ -82,7 +82,7 @@ def create_user():
         return redirect(url_for('routes.admin_bp.admin_settings'))
 
     username = request.form.get('username')
-    password = request.form.get('password')
+    password = request.form.get('password', '')
     role = normalize_role(request.form.get('role'))
 
     if role not in set(Config.LOCAL_USER_ROLES):
@@ -136,7 +136,7 @@ def update_password(user_id):
         return redirect(url_for('routes.admin_bp.admin_settings'))
 
     user = User.query.get_or_404(user_id)
-    new_pw = request.form.get('password')
+    new_pw = request.form.get('password', '')
 
     if not is_strong_password(new_pw):
         flash('Weak password.', 'danger')
