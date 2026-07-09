@@ -39,7 +39,7 @@ document.getElementById("yeastSearch").addEventListener("input", filterYeastTabl
           <th>Flocculation</th>
           <th>Attenuation</th>
           <th>Notes</th>
-          {% if current_user.role == 'admin' %}
+          {% if current_user_is_admin %}
           <th>Actions</th>
           {% endif %}
         </tr>
@@ -54,7 +54,7 @@ document.getElementById("yeastSearch").addEventListener("input", filterYeastTabl
           <td>{{ yeast.flocculation or '—' }}</td>
           <td>{{ yeast.attenuation or '—' }}</td>
           <td>{{ yeast.notes or '—' }}</td>
-          {% if current_user.role == 'admin' %}
+          {% if current_user_is_admin %}
           <td>
             {% if not yeast.is_default %}
               <form method="POST" action="{{ url_for('routes.yeast_bp.delete_yeast', yeast_id=yeast.id) }}" style="display:inline;" onsubmit="return confirm('Delete this yeast?');">
@@ -74,7 +74,7 @@ document.getElementById("yeastSearch").addEventListener("input", filterYeastTabl
   </details>
 {% endfor %}
 
-{% if current_user.role == 'admin' %}
+{% if current_user_is_admin %}
 <hr/>
 <h3>Add New Yeast</h3>
 <form method="POST" action="{{ url_for('routes.yeast_bp.add_yeast') }}">

@@ -5,7 +5,8 @@ from flask_migrate import Migrate
 from flask_login import LoginManager, current_user
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from app.utils import check_for_updates, get_unit_preference
+from authlib.integrations.flask_client import OAuth
+from app.utils import check_for_updates, current_user_can_edit, current_user_is_admin, get_unit_preference, local_login_enabled, local_user_role_options, oidc_enabled
 from config import Config
 from markupsafe import Markup, escape
 import traceback, os, logging, click
@@ -16,8 +17,11 @@ from flask_wtf import CSRFProtect
 db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()
-limiter = Limiter(get_remote_address)
+#  Make Redis optional - use memory storage if Redis unavailable
+# This prevents app startup failure when Redis service is not configured
+limiter = None  # Initialized in create_app() with fallback logic
 csrf = CSRFProtect()
+oauth = OAuth()
 
 def create_app():
     app = Flask(__name__)
@@ -27,7 +31,29 @@ def create_app():
     migrate.init_app(app, db)
     login_manager.init_app(app)
     login_manager.login_view = 'auth_bp.login'
+    # Make Redis optional with memory fallback
+    # Try Redis first, fall back to memory storage if unavailable
+    # WARNING: Memory fallback is NOT suitable for production deployments.
+    # For production deployments with multiple instances, Redis is REQUIRED for effective rate limiting.
+    # Memory storage only works for single-instance deployments and will not share rate limit
+    # state across multiple application instances or survive restarts.
+    global limiter
+    redis_uri = "redis://redis:6379"
+    try:
+        limiter = Limiter(get_remote_address, storage_uri=redis_uri)
+        limiter.init_app(app)
+        app.logger.info(f'✅ Rate limiter initialized with Redis storage')
+    except Exception as e:
+        # Fallback to memory storage - not suitable for production but allows app to start
+        limiter = Limiter(get_remote_address, storage_uri="memory://")
+        limiter.init_app(app)
+        app.logger.warning(f'⚠️ Rate limiter using memory storage (Redis unavailable): {e}')
+        # Check if production deployment requires Redis
+        if app.config.get('REQUIRE_REDIS_FOR_RATE_LIMITING', False):
+            app.logger.error('PRODUCTION_REDIS_REQUIRED: Rate limiting requires Redis in production. Set REQUIRE_REDIS_FOR_RATE_LIMITING=False only for development.')
+            raise RuntimeError('Redis is required for rate limiting in production deployments')
     csrf.init_app(app)
+    oauth.init_app(app)
 
     from .models import User
 
@@ -35,21 +61,29 @@ def create_app():
     def root():
         return redirect('/app/')
 
+    @app.route('/health')
+    def health():
+        return {'status': 'ok', 'version': Config.VERSION}
+
     @login_manager.user_loader
     def load_user(user_id):
         return User.query.get(int(user_id))
 
     @app.before_request
     def require_setup():
-        allowed = {'auth_bp.setup', 'static'}
+        allowed = {'auth_bp.setup', 'auth_bp.login', 'auth_bp.oidc_login', 'auth_bp.oidc_callback', 'static', 'health'}
 
         if request.endpoint is None or request.endpoint in allowed:
             return
 
         try:
-            if not User.query.first():
+            if not User.query.first() and not oidc_enabled():
                 return redirect(url_for("auth_bp.setup"))
         except Exception:
+            # Database not ready (migration in progress or schema incomplete)
+            # Allow access to setup endpoint to complete initialization
+            if request.endpoint == 'auth_bp.setup':
+                return
             return render_template("errors/import_wait.html"), 503
 
     @app.before_request
@@ -82,7 +116,15 @@ def create_app():
     def inject_globals():
         return {
             "app_version": Config.VERSION,
-            "update_info": check_for_updates()
+            "update_info": check_for_updates(),
+            "oidc_enabled": oidc_enabled(),
+            "local_login_enabled": local_login_enabled(),
+            "rbac_admin_role": Config.RBAC_ADMIN_ROLE,
+            "rbac_editor_role": Config.RBAC_EDITOR_ROLE,
+            "rbac_user_role": Config.RBAC_USER_ROLE,
+            "current_user_is_admin": current_user_is_admin(),
+            "current_user_can_edit": current_user_can_edit(),
+            "local_role_options": local_user_role_options(),
         }
 
     @app.template_filter('nl2br')

@@ -7,31 +7,40 @@ from flask import Blueprint, render_template, redirect, url_for, request, flash,
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash
-from sqlalchemy.exc import ProgrammingError
 from .models import db, User, AppSettings
-from app.decorators import role_required
-from app.utils import is_strong_password, check_for_updates, read_import_status_file
+from app.utils import is_strong_password, check_for_updates, read_import_status_file, role_label, role_required, local_login_enabled, local_user_role_options, normalize_role
 from datetime import datetime
 import re
+from config import Config
 
 BACKUP_FOLDER = os.path.join(os.getcwd(), "backups")
 os.makedirs(BACKUP_FOLDER, exist_ok=True)
 IMPORT_STATUS_PATH = None
 
+def pg_env():
+    env = os.environ.copy()
+    env['PGPASSWORD'] = env.get('PGPASSWORD') or Config.BREW_DB_PASSWORD
+    return env
+
+
+def psql_command(*args):
+    return [
+        "psql",
+        "-h", Config.BREW_DB_HOST,
+        "-p", str(Config.BREW_DB_PORT),
+        "-U", Config.BREW_DB_USER,
+        "-d", Config.BREW_DB_NAME,
+        *args,
+    ]
+
 admin_bp = Blueprint('admin_bp', __name__, url_prefix='/settings/admin')
 
 @admin_bp.route('/')
 @login_required
-@role_required('admin')
+@role_required(Config.RBAC_ADMIN_ROLE)
 def admin_settings():
     users = User.query.order_by(User.username).all()
-    try:
-        settings = AppSettings.query.first() or AppSettings()
-    except ProgrammingError:
-        # Likely missing new columns on restored backup; patch and retry once
-        db.session.execute("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS unit_preference VARCHAR(10) DEFAULT 'imperial';")
-        db.session.commit()
-        settings = AppSettings.query.first() or AppSettings()
+    settings = AppSettings.query.first() or AppSettings()
     if not settings.unit_preference:
         settings.unit_preference = 'imperial'
     update_info = check_for_updates()
@@ -40,11 +49,20 @@ def admin_settings():
         reverse=True
     )
     import_status = _read_import_status()
-    return render_template('settings/admin.html', users=users, settings=settings, update_info=update_info, backups=backups, import_status=import_status)
+    return render_template(
+        'settings/admin.html',
+        users=users,
+        settings=settings,
+        update_info=update_info,
+        backups=backups,
+        import_status=import_status,
+        local_role_options=local_user_role_options(),
+        role_label=role_label,
+    )
 
 @admin_bp.route('/update-base-url', methods=['POST'])
 @login_required
-@role_required('admin')
+@role_required(Config.RBAC_ADMIN_ROLE)
 def update_base_url():
     settings = AppSettings.query.first() or AppSettings()
     settings.base_url = request.form.get('base_url')
@@ -57,11 +75,31 @@ def update_base_url():
 
 @admin_bp.route('/create-user', methods=['POST'])
 @login_required
-@role_required('admin')
+@role_required(Config.RBAC_ADMIN_ROLE)
 def create_user():
-    username = request.form.get('username')
-    password = request.form.get('password')
-    role = request.form.get('role')
+    # Allow local user creation in hybrid mode if ALLOW_LOCAL_USER_CREATION is set
+    if not local_login_enabled() and not current_app.config.get('ALLOW_LOCAL_USER_CREATION', False):
+        flash('User management is handled by your identity provider.', 'info')
+        return redirect(url_for('routes.admin_bp.admin_settings'))
+
+    username = request.form.get('username', '')
+    password = request.form.get('password', '')
+    role = normalize_role(request.form.get('role', ''))
+
+    # Security: Validate required fields before processing
+    if not username:
+        flash('Username is required.', 'danger')
+        return redirect(url_for('routes.admin_bp.admin_settings'))
+    if not password:
+        flash('Password is required.', 'danger')
+        return redirect(url_for('routes.admin_bp.admin_settings'))
+    if not role:
+        flash('Role is required.', 'danger')
+        return redirect(url_for('routes.admin_bp.admin_settings'))
+
+    if role not in set(Config.LOCAL_USER_ROLES):
+        flash('Invalid role.', 'danger')
+        return redirect(url_for('routes.admin_bp.admin_settings'))
 
     if User.query.filter_by(username=username).first():
         flash('Username already exists.', 'danger')
@@ -72,7 +110,12 @@ def create_user():
         return redirect(url_for('routes.admin_bp.admin_settings'))
 
     hashed = generate_password_hash(password)
-    user = User(username=username, password_hash=hashed, role=role)
+    user = User(
+        username=username,
+        password_hash=hashed,
+        role=role,
+        is_admin=(role == Config.RBAC_ADMIN_ROLE),
+    )
     db.session.add(user)
     db.session.commit()
     flash('User created.', 'success')
@@ -80,8 +123,13 @@ def create_user():
 
 @admin_bp.route('/delete-user/<int:user_id>', methods=['POST'])
 @login_required
-@role_required('admin')
+@role_required(Config.RBAC_ADMIN_ROLE)
 def delete_user(user_id):
+    # Allow local user management in hybrid mode if ALLOW_LOCAL_USER_CREATION is set
+    if not local_login_enabled() and not current_app.config.get('ALLOW_LOCAL_USER_CREATION', False):
+        flash('User management is handled by your identity provider.', 'info')
+        return redirect(url_for('routes.admin_bp.admin_settings'))
+
     if user_id == current_user.id:
         flash("Cannot delete your own account.", "danger")
         return redirect(url_for('routes.admin_bp.admin_settings'))
@@ -94,10 +142,20 @@ def delete_user(user_id):
 
 @admin_bp.route('/update-password/<int:user_id>', methods=['POST'])
 @login_required
-@role_required('admin')
+@role_required(Config.RBAC_ADMIN_ROLE)
 def update_password(user_id):
+    # Allow local user management in hybrid mode if ALLOW_LOCAL_USER_CREATION is set
+    if not local_login_enabled() and not current_app.config.get('ALLOW_LOCAL_USER_CREATION', False):
+        flash('Password management is handled by your identity provider.', 'info')
+        return redirect(url_for('routes.admin_bp.admin_settings'))
+
     user = User.query.get_or_404(user_id)
-    new_pw = request.form.get('password')
+    new_pw = request.form.get('password', '')
+
+    if not is_strong_password(new_pw):
+        flash('Weak password.', 'danger')
+        return redirect(url_for('routes.admin_bp.admin_settings'))
+
     user.set_password(new_pw)
     db.session.commit()
     flash("Password updated.", "success")
@@ -105,7 +163,7 @@ def update_password(user_id):
 
 @admin_bp.route('/create-backup', methods=['POST'])
 @login_required
-@role_required('admin')
+@role_required(Config.RBAC_ADMIN_ROLE)
 def create_backup():
     timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     filename = f"brewweb_backup_{timestamp}.sql"
@@ -115,13 +173,14 @@ def create_backup():
         with open(backup_path, "w") as f:
             subprocess.run([
                 "pg_dump",
-                "-h", "db",
-                "-U", "brewuser",
-                "-d", "brewweb",
+                "-h", Config.BREW_DB_HOST,
+                "-p", str(Config.BREW_DB_PORT),
+                "-U", Config.BREW_DB_USER,
+                "-d", Config.BREW_DB_NAME,
                 "--no-owner",
                 "--no-privileges",
                 "--inserts"
-            ], check=True, env={"PGPASSWORD": "brewpass"}, stdout=f)
+            ], check=True, env=pg_env(), stdout=f)
 
         flash("New backup created successfully.", "success")
     except subprocess.CalledProcessError as e:
@@ -131,9 +190,24 @@ def create_backup():
 
 @admin_bp.route('/download-backup/<filename>')
 @login_required
-@role_required('admin')
+@role_required(Config.RBAC_ADMIN_ROLE)
 def download_backup(filename):
-    path = os.path.join(BACKUP_FOLDER, filename)
+    # Security: Prevent path traversal attacks by validating filename
+    # Only allow filenames that resolve to paths within BACKUP_FOLDER
+    safe_filename = secure_filename(filename)
+    if not safe_filename:
+        flash("Invalid filename.", "danger")
+        return redirect(url_for('routes.admin_bp.admin_settings'))
+    
+    path = os.path.join(BACKUP_FOLDER, safe_filename)
+    
+    # Additional check: ensure resolved path is within BACKUP_FOLDER
+    real_path = os.path.realpath(path)
+    real_backup_folder = os.path.realpath(BACKUP_FOLDER)
+    if not real_path.startswith(real_backup_folder + os.sep):
+        flash("Invalid backup file path.", "danger")
+        return redirect(url_for('routes.admin_bp.admin_settings'))
+    
     if not os.path.exists(path):
         flash("Backup file not found.", "danger")
         return redirect(url_for('routes.admin_bp.admin_settings'))
@@ -141,7 +215,7 @@ def download_backup(filename):
 
 @admin_bp.route('/delete-backup/<filename>', methods=['POST'])
 @login_required
-@role_required('admin')
+@role_required(Config.RBAC_ADMIN_ROLE)
 def delete_backup(filename):
     path = os.path.join(BACKUP_FOLDER, filename)
     if os.path.exists(path):
@@ -153,7 +227,7 @@ def delete_backup(filename):
 
 @admin_bp.route('/export-db')
 @login_required
-@role_required('admin')
+@role_required(Config.RBAC_ADMIN_ROLE)
 def export_db():
     timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     filename = f"brewweb_backup_{timestamp}.sql"
@@ -163,14 +237,15 @@ def export_db():
         with open(backup_path, "w") as f_out:
             subprocess.run([
                 "pg_dump",
-                "-h", "db",
-                "-U", "brewuser",
-                "-d", "brewweb",
+                "-h", Config.BREW_DB_HOST,
+                "-p", str(Config.BREW_DB_PORT),
+                "-U", Config.BREW_DB_USER,
+                "-d", Config.BREW_DB_NAME,
                 "--no-owner",
                 "--no-privileges",
                 "--inserts",
-                "--quote-all-identifiers"  # 👈 ensures "User" is preserved
-            ], check=True, env={"PGPASSWORD": "brewpass"}, stdout=f_out)
+                "--quote-all-identifiers"  # Preserve quoting for reserved identifiers like "user"
+            ], check=True, env=pg_env(), stdout=f_out)
 
         flash("Export completed successfully.", "success")
         return send_file(backup_path, as_attachment=True)
@@ -181,7 +256,7 @@ def export_db():
 
 @admin_bp.route('/import-db', methods=['POST'])
 @login_required
-@role_required('admin')
+@role_required(Config.RBAC_ADMIN_ROLE)
 def import_db():
     file = request.files.get("backup_file")
     if not file:
@@ -207,20 +282,22 @@ def import_db():
     return redirect(url_for('routes.admin_bp.import_status_page'))
 
 @admin_bp.route('/import-status')
+@login_required
+@role_required(Config.RBAC_ADMIN_ROLE)
 def import_status():
     status = _read_import_status()
     return jsonify(status or {"status": "idle", "message": "No import running"})
 
 @admin_bp.route('/import-status/page')
 @login_required
-@role_required('admin')
+@role_required(Config.RBAC_ADMIN_ROLE)
 def import_status_page():
     status = _read_import_status() or {"status": "idle", "message": "No import running"}
     return render_template('settings/import_status.html', import_status=status)
 
 @admin_bp.route('/import-status/clear', methods=['POST'])
 @login_required
-@role_required('admin')
+@role_required(Config.RBAC_ADMIN_ROLE)
 def clear_import_status():
     _clear_import_status()
     flash("Import status cleared.", "info")
@@ -232,25 +309,26 @@ def _start_background_import(sql_path):
 
     def worker():
         with app.app_context():
-            env = os.environ.copy()
-            env["PGPASSWORD"] = env.get("PGPASSWORD", "brewpass")
+            env = pg_env()
             try:
                 _write_import_status("running", "Dropping schema…")
                 subprocess.run(
-                    ["psql", "-h", "db", "-U", "brewuser", "-d", "brewweb", "-c", "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"],
+                    psql_command("-c", "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"),
                     check=True,
                     env=env,
                 )
                 _write_import_status("running", "Importing SQL…")
                 import_run = subprocess.run(
-                    ["psql", "-h", "db", "-U", "brewuser", "-d", "brewweb", "-f", sql_path],
+                    psql_command("-f", sql_path),
                     check=False,
                     env=env,
                 )
                 if import_run.returncode != 0:
                     _write_import_status("running", f"Import completed with return code {import_run.returncode}; continuing…")
-                _write_import_status("running", "Applying schema fixes…")
-                _apply_schema_fixes(env)
+                _write_import_status("running", "Applying import compatibility fixes…")
+                _apply_import_compat_fixes(env)
+                _write_import_status("running", "Stamping packaged migrations…")
+                _stamp_head_with_fallback(env)
                 _write_import_status("running", "Seeding yeast data…")
                 subprocess.run(["flask", "seed-yeasts"], check=False, env=env, cwd=os.getcwd())
                 _write_import_status("success", "Import completed and schema fixed.")
@@ -303,143 +381,82 @@ def _stamp_head_with_fallback(env):
     try:
         subprocess.run(["flask", "db", "stamp", "head"], check=True, env=env, cwd=os.getcwd())
         return
-    except Exception:
-        pass
-    # Fallback: manually set alembic_version to local latest revision or known revision id
-    rev = _latest_local_revision() or "d00abd51392a"
+    except Exception as e:
+        current_app.logger.warning(
+            "Migration stamp failed, using fallback: %s",
+            str(e),
+            exc_info=True
+        )
+    # Fallback: manually set alembic_version to the current local head.
+    rev = _latest_local_revision()
+    if rev is None:
+        current_app.logger.error("Migration stamp fallback failed: no local revision found")
+        return
     try:
         db.session.execute("CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) NOT NULL);")
         db.session.execute("DELETE FROM alembic_version;")
         db.session.execute("INSERT INTO alembic_version (version_num) VALUES (:rev)", {"rev": rev})
         db.session.commit()
-    except Exception:
+        current_app.logger.info("Migration stamp fallback successful: stamped revision %s", rev)
+    except Exception as e:
         db.session.rollback()
+        current_app.logger.error("Migration stamp fallback failed: %s", str(e), exc_info=True)
 
-def _apply_schema_fixes(env):
-    commands = []
-    # Create tables if missing
-    commands.extend([
-        """
-        CREATE TABLE IF NOT EXISTS yeast (
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(100) NOT NULL,
-            alcohol_type VARCHAR(20) NOT NULL,
-            tolerance VARCHAR(50),
-            strength VARCHAR(50),
-            sweetness_retention VARCHAR(50),
-            notes TEXT,
-            flocculation VARCHAR(50),
-            attenuation VARCHAR(10),
-            is_default BOOLEAN DEFAULT FALSE
-        );
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS recipe (
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(100) NOT NULL,
-            alcohol_type VARCHAR(20),
-            content TEXT,
-            created_date TIMESTAMP,
-            instructions TEXT,
-            notes TEXT,
-            water_type VARCHAR(50),
-            yeast_id INTEGER REFERENCES yeast(id)
-        );
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS batch (
-            id SERIAL PRIMARY KEY,
-            recipe_id INTEGER REFERENCES recipe(id),
-            name VARCHAR(100) NOT NULL,
-            start_date TIMESTAMP,
-            end_date TIMESTAMP
-        );
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS "user" (
-            id SERIAL PRIMARY KEY,
-            username VARCHAR(120) UNIQUE NOT NULL,
-            password_hash VARCHAR(512) NOT NULL,
-            is_admin BOOLEAN DEFAULT FALSE,
-            role VARCHAR(50) DEFAULT 'user',
-            theme VARCHAR(20) DEFAULT 'dark',
-            font_size VARCHAR(10) DEFAULT '16px'
-        );
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS ingredient (
-            id SERIAL PRIMARY KEY,
-            recipe_id INTEGER REFERENCES recipe(id),
-            name VARCHAR(100) NOT NULL,
-            amount_per_gallon FLOAT,
-            unit VARCHAR(20),
-            note VARCHAR(200)
-        );
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS measurement (
-            id SERIAL PRIMARY KEY,
-            batch_id INTEGER REFERENCES batch(id),
-            date TIMESTAMP,
-            gravity FLOAT,
-            ph FLOAT,
-            temperature FLOAT,
-            notes TEXT
-        );
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS calendar_event (
-            id SERIAL PRIMARY KEY,
-            batch_id INTEGER REFERENCES batch(id),
-            title VARCHAR(100) NOT NULL,
-            start DATE NOT NULL,
-            "end" DATE,
-            description TEXT,
-            all_day BOOLEAN DEFAULT TRUE,
-            created_by INTEGER REFERENCES "user"(id),
-            note TEXT
-        );
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS app_settings (
-            id SERIAL PRIMARY KEY,
-            base_url VARCHAR(255),
-            unit_preference VARCHAR(10) DEFAULT 'imperial'
-        );
-        """
-    ])
-    # Add/patch columns to match current models
-    commands.extend([
-        "ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS unit_preference VARCHAR(10) DEFAULT 'imperial';",
-        "ALTER TABLE recipe ADD COLUMN IF NOT EXISTS yeast_id INTEGER;",
-        "ALTER TABLE recipe ADD CONSTRAINT IF NOT EXISTS recipe_yeast_id_fkey FOREIGN KEY (yeast_id) REFERENCES yeast(id);",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS batch_size FLOAT;",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS fermentation_temp VARCHAR(50);",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS initial_gravity FLOAT;",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS final_gravity FLOAT;",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS abv FLOAT;",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS yeast_type VARCHAR(100);",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS backsweetened BOOLEAN;",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS flavor_additions TEXT;",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS pectic_used BOOLEAN;",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS notes TEXT;",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS water_type VARCHAR(50);",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS alcohol_type VARCHAR(20);",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS tosna_total FLOAT;",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS tosna_per_day FLOAT;",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS tosna_enabled BOOLEAN;",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS yeast_id INTEGER;",
-        "ALTER TABLE batch ADD CONSTRAINT IF NOT EXISTS batch_yeast_id_fkey FOREIGN KEY (yeast_id) REFERENCES yeast(id);",
-        "ALTER TABLE ingredient ADD COLUMN IF NOT EXISTS amount_per_gallon FLOAT;",
-        "ALTER TABLE ingredient ADD COLUMN IF NOT EXISTS unit VARCHAR(20);",
-        "ALTER TABLE ingredient ADD COLUMN IF NOT EXISTS note VARCHAR(200);",
-        "ALTER TABLE measurement ADD COLUMN IF NOT EXISTS ph FLOAT;",
-        "ALTER TABLE measurement ADD COLUMN IF NOT EXISTS temperature FLOAT;"
-    ])
+def _apply_import_compat_fixes(env):
+    """
+    Apply schema compatibility fixes after importing a legacy SQL backup.
+    
+    SECURITY: This function validates required tables exist before applying
+    the Alembic migration. All table/column names are hardcoded with no user
+    input, preventing SQL injection.
+    
+    The function applies the Alembic migration 'import_compat' which contains
+    all schema compatibility fixes. The migration uses inspector-based conditionals
+    to ensure idempotency and is safe to run multiple times during import operations.
+    """
+    required_tables = [
+        "user",
+        "recipe",
+        "batch",
+        "ingredient",
+        "measurement",
+        "calendar_event",
+        "yeast",
+    ]
+    missing_tables = []
 
-    for cmd in commands:
-        subprocess.run(
-            ["psql", "-h", "db", "-U", "brewuser", "-d", "brewweb", "-c", cmd],
+    for table_name in required_tables:
+        # Validate table name is a safe identifier (alphanumeric + underscore only)
+        # This prevents SQL injection since table names are hardcoded in the list
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name):
+            raise ValueError(f"Invalid table name: {table_name}")
+        
+        # Security note - Using string interpolation here is safe because:
+        # 1. Table names are hardcoded in required_tables list (no user input)
+        # 2. Regex validation ensures only safe alphanumeric characters
+        # 3. psql CLI doesn't support parameterized queries like psycopg2
+        # This is defense-in-depth: even if regex failed, hardcoded list prevents injection
+        result = subprocess.run(
+            psql_command(
+                "-tAc",
+                f"SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name=quote_ident('{table_name}')"
+            ),
             check=False,
+            capture_output=True,
+            text=True,
             env=env,
         )
+        if result.stdout.strip() != "1":
+            missing_tables.append(table_name)
+
+    if missing_tables:
+        missing = ", ".join(sorted(missing_tables))
+        raise RuntimeError(f"Imported SQL backup is missing required tables: {missing}")
+
+    # Apply Alembic migration instead of raw SQL commands
+    subprocess.run(
+        ["flask", "db", "upgrade", "import_compat"],
+        check=True,
+        env=env,
+        cwd=os.getcwd(),
+    )

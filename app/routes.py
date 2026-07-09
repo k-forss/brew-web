@@ -1,37 +1,23 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort
-from flask_login import login_user, logout_user, current_user, login_required
+from flask_login import current_user, login_required
 from .models import db, Recipe, Measurement, Batch, Ingredient, User
 from datetime import datetime
-from app import limiter
-from app.utils import role_required, c_to_f, get_unit_preference
+from app.utils import role_required, c_to_f, get_unit_preference, oidc_enabled
+from config import Config
 
 routes = Blueprint("routes", __name__, url_prefix="/app")
 
 # === AUTH ===
-@routes.route('/login', methods=['GET', 'POST'])
-@limiter.limit("5 per minute")
+@routes.route('/login')
 def login():
-    if not User.query.first():
-        return redirect(url_for('routes.setup'))
-    if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        user = User.query.filter_by(username=username).first()
-        if user and user.check_password(password):
-            login_user(user)
-            flash('Logged in successfully.', 'success')
-            return redirect(url_for('routes.index'))
-        else:
-            time.sleep(1)  # delays brute-force timing analysis
-            flash('Invalid username or password.', 'error')
-    return render_template('login.html')
+    if oidc_enabled():
+        return redirect(url_for('auth_bp.oidc_login'))
+    return redirect(url_for('auth_bp.login'))
 
 @routes.route('/logout')
 @login_required
 def logout():
-    logout_user()
-    flash('Logged out successfully.', 'success')
-    return redirect(url_for('routes.login'))
+    return redirect(url_for('auth_bp.logout'))
 
 # === INDEX ===
 @routes.route('/')
@@ -52,7 +38,7 @@ def index():
 # === MEASUREMENTS ===
 @routes.route('/measurements/new', methods=['GET', 'POST'])
 @login_required
-@role_required('admin', 'editor')
+@role_required(Config.RBAC_ADMIN_ROLE, Config.RBAC_EDITOR_ROLE)
 def new_measurement():
     batches = Batch.query.all()
     selected_id = request.args.get('batch_id', type=int)
@@ -87,7 +73,7 @@ def new_measurement():
 
 @routes.route('/measurements/<int:measurement_id>/delete', methods=['POST'])
 @login_required
-@role_required('admin')
+@role_required(Config.RBAC_ADMIN_ROLE)
 def delete_measurement(measurement_id):
     measurement = Measurement.query.get_or_404(measurement_id)
     batch_id = measurement.batch_id
