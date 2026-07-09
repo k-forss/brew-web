@@ -8,6 +8,8 @@ brew-web.zip
 # Environment and secrets
 .env
 .env.*
+.venv
+venv
 
 # Python artifacts
 __pycache__/

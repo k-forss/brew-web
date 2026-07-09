@@ -377,6 +377,12 @@ def _apply_import_compat_fixes(env):
     missing_tables = []
 
     for table_name in required_tables:
+        # Validate table name is a safe identifier (alphanumeric + underscore only)
+        # This prevents SQL injection even though table names are hardcoded
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name):
+            raise ValueError(f"Invalid table name: {table_name}")
+        
+        # Quote table name properly for psql
         result = subprocess.run(
             psql_command(
                 "-tAc",

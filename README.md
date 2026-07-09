@@ -41,9 +41,58 @@ Access at http://localhost:4452
 - Run `/setup` on first start.
 - Admin/user management via `/settings/admin`.
 - Force password reset: create `/instance/force_reset.flag`.
-- Keep behind TLS proxy; don’t expose 4452 directly.
+- Keep behind TLS proxy; don't expose 4452 directly.
 - Store secrets only in `.env`; rotate `SECRET_KEY` for production.
 - CSRF and login protection are enabled by default.
+
+### OIDC SSO Configuration
+
+When `OIDC_ENABLED=true`, you **MUST** configure the following environment variables:
+
+- `OIDC_ADMIN_GROUPS`: Comma-separated list of OIDC groups that should get admin role (e.g., `brew-admins`)
+- `OIDC_EDITOR_GROUPS`: Groups that should get editor role
+- `OIDC_USER_GROUPS`: Groups that should get user role (fallback)
+- `OIDC_DEFAULT_ROLE`: Default role if user's groups don't match (default: `user`)
+
+**OIDC_ADMIN_GROUPS is required** - Without this, no users will get admin privileges via OIDC.
+
+### OIDC Authority Principle
+
+When OIDC mode is enabled:
+- **ALL roles come from OIDC tokens** - no local overrides
+- **NO "first user is admin" logic** - the first OIDC user does NOT automatically become admin
+- **Mutually exclusive with local auth** - you cannot use both OIDC and local login simultaneously
+
+### Breaking Changes (v1.4.0+)
+
+**R1: Calendar API now requires CSRF tokens**
+
+All calendar API endpoints (`POST /calendar-event`, `PUT /calendar-event/<id>`, `DELETE /calendar-event/<id>`) now require CSRF token validation.
+
+If you have custom JavaScript integrations that call these endpoints directly, you must:
+
+1. Fetch the CSRF token from the `/calendar` page (it's available as `csrf_token` in the template context)
+2. Include it in your AJAX requests:
+   ```javascript
+   fetch('/calendar-event', {
+     method: 'POST',
+     headers: {
+       'Content-Type': 'application/json',
+       'X-CSRFToken': csrf_token  // or 'X-Requested-With': 'XMLHttpRequest'
+     },
+     body: JSON.stringify({...})
+   })
+   ```
+
+Alternatively, set `X-Requested-With: XMLHttpRequest` header for CSRF validation to pass.
+
+### Migration Notes
+
+**Role migration** - The `viewer` role has been migrated to `user`. All existing users with role `viewer` are now `user`.
+
+**Legacy Alembic reset** - If upgrading from a version with unknown Alembic revisions, the migration system will automatically reset the `alembic_version` table and reapply migrations. This is safe but may take extra time on first startup after upgrade.
+
+**No hybrid mode** - OIDC and local authentication are mutually exclusive. When OIDC is enabled, local login is disabled. Existing local accounts remain but cannot be used while OIDC is active.
 
 ---
 

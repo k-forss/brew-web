@@ -98,6 +98,16 @@ def unique_username(candidate):
 
 
 def resolve_oidc_user(subject, email, email_verified):
+    """
+    Resolve or create an OIDC user account.
+    
+    Security: Prevents account takeover by requiring explicit linking for:
+    - Local accounts (auth_source != 'oidc')
+    - OIDC accounts with different subject identifiers
+    
+    Returns None if no matching user found (new user will be created).
+    Raises ValueError if account linking conflict detected.
+    """
     if subject:
         user = User.query.filter_by(oidc_subject=subject).first()
         if user is not None:
@@ -110,12 +120,14 @@ def resolve_oidc_user(subject, email, email_verified):
     if user is None:
         return None
 
+    # Do not automatically link to local accounts - requires explicit migration
     if user.auth_source != 'oidc':
         raise ValueError(
             'A local account already uses this verified email address. '
             'Use an OIDC account with a different email or migrate the existing account first.'
         )
 
+    # Prevent linking to an OIDC account with a different subject
     if user.oidc_subject and subject and user.oidc_subject != subject:
         raise ValueError(
             'This verified email is already linked to a different OIDC identity.'
@@ -262,6 +274,7 @@ def login():
 
 
 @auth_bp.route('/oidc/login')
+@limiter.limit("5 per minute")
 def oidc_login():
     if not oidc_enabled():
         return redirect(url_for('auth_bp.login'))
@@ -271,6 +284,7 @@ def oidc_login():
 
 
 @auth_bp.route('/oidc/callback')
+@limiter.limit("5 per minute")
 def oidc_callback():
     if not oidc_enabled():
         return redirect(url_for('auth_bp.login'))
@@ -307,6 +321,11 @@ def logout():
 
 @auth_bp.route('/reset', methods=['GET', 'POST'])
 def reset_password():
+    """
+    Handle forced password reset for local users.
+    
+    All POST requests to this route automatically validate CSRF tokens via Flask-WTF.
+    """
     if not local_login_enabled():
         flash('Password management is handled by your identity provider.', 'info')
         if oidc_enabled():

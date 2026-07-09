@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, request, jsonify
 from flask_login import login_required, current_user
 from datetime import datetime
 from .models import db, Batch, CalendarEvent
-from app.decorators import role_required
+from app.utils import role_required
 from config import Config
 
 calendar_bp = Blueprint('calendar_bp', __name__)

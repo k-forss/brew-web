@@ -111,8 +111,9 @@ fi
 # Ensure database exists (handles fresh volumes)
 echo "🗄️ Ensuring database ${DB_NAME} exists..."
 if ! psql_postgres -tAc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}';" | grep -q 1; then
-  if ! createdb -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -O "$DB_USER" -E UTF8 "$DB_NAME"; then
-    echo "❌ Failed to create database '${DB_NAME}'. Check PostgreSQL permissions." >&2
+  if ! createdb -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -O "$DB_USER" -E UTF8 "$DB_NAME" 2>&1; then
+    echo "❌ Failed to create database '${DB_NAME}'. Check PostgreSQL permissions and credentials." >&2
+    echo "   Common issues: wrong DB_HOST, DB_PORT, DB_USER, or DB_PASSWORD" >&2
     exit 1
   fi
 fi
