@@ -178,7 +178,22 @@ def create_backup():
 @login_required
 @role_required(Config.RBAC_ADMIN_ROLE)
 def download_backup(filename):
-    path = os.path.join(BACKUP_FOLDER, filename)
+    # Security: Prevent path traversal attacks by validating filename
+    # Only allow filenames that resolve to paths within BACKUP_FOLDER
+    safe_filename = secure_filename(filename)
+    if not safe_filename:
+        flash("Invalid filename.", "danger")
+        return redirect(url_for('routes.admin_bp.admin_settings'))
+    
+    path = os.path.join(BACKUP_FOLDER, safe_filename)
+    
+    # Additional check: ensure resolved path is within BACKUP_FOLDER
+    real_path = os.path.realpath(path)
+    real_backup_folder = os.path.realpath(BACKUP_FOLDER)
+    if not real_path.startswith(real_backup_folder + os.sep):
+        flash("Invalid backup file path.", "danger")
+        return redirect(url_for('routes.admin_bp.admin_settings'))
+    
     if not os.path.exists(path):
         flash("Backup file not found.", "danger")
         return redirect(url_for('routes.admin_bp.admin_settings'))
@@ -253,6 +268,8 @@ def import_db():
     return redirect(url_for('routes.admin_bp.import_status_page'))
 
 @admin_bp.route('/import-status')
+@login_required
+@role_required(Config.RBAC_ADMIN_ROLE)
 def import_status():
     status = _read_import_status()
     return jsonify(status or {"status": "idle", "message": "No import running"})
@@ -365,6 +382,17 @@ def _stamp_head_with_fallback(env):
         db.session.rollback()
 
 def _apply_import_compat_fixes(env):
+    """
+    Apply schema compatibility fixes after importing a legacy SQL backup.
+    
+    SECURITY: This function validates required tables exist before applying
+    the Alembic migration. All table/column names are hardcoded with no user
+    input, preventing SQL injection.
+    
+    The function applies the Alembic migration 'import_compat' which contains
+    all schema compatibility fixes. The migration uses inspector-based conditionals
+    to ensure idempotency and is safe to run multiple times during import operations.
+    """
     required_tables = [
         "user",
         "recipe",
@@ -378,11 +406,12 @@ def _apply_import_compat_fixes(env):
 
     for table_name in required_tables:
         # Validate table name is a safe identifier (alphanumeric + underscore only)
-        # This prevents SQL injection even though table names are hardcoded
+        # This prevents SQL injection since table names are hardcoded in the list
         if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name):
             raise ValueError(f"Invalid table name: {table_name}")
         
-        # Quote table name properly for psql
+        # Security: Use regex-validated table name with proper identifier quoting
+        # Table names are hardcoded, and regex ensures only safe characters are used
         result = subprocess.run(
             psql_command(
                 "-tAc",
@@ -400,57 +429,10 @@ def _apply_import_compat_fixes(env):
         missing = ", ".join(sorted(missing_tables))
         raise RuntimeError(f"Imported SQL backup is missing required tables: {missing}")
 
-    commands = [
-        """
-        CREATE TABLE IF NOT EXISTS app_settings (
-            id SERIAL PRIMARY KEY,
-            base_url VARCHAR(255),
-            unit_preference VARCHAR(10) DEFAULT 'imperial'
-        );
-        """,
-        "ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS unit_preference VARCHAR(10) DEFAULT 'imperial';",
-        "ALTER TABLE \"user\" ADD COLUMN IF NOT EXISTS email VARCHAR(255);",
-        "ALTER TABLE \"user\" ADD COLUMN IF NOT EXISTS display_name VARCHAR(255);",
-        "ALTER TABLE \"user\" ADD COLUMN IF NOT EXISTS oidc_subject VARCHAR(255);",
-        "ALTER TABLE \"user\" ADD COLUMN IF NOT EXISTS auth_source VARCHAR(20) DEFAULT 'local';",
-        "ALTER TABLE \"user\" ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'user';",
-        "ALTER TABLE \"user\" ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP;",
-        "ALTER TABLE \"user\" ALTER COLUMN password_hash DROP NOT NULL;",
-        "UPDATE \"user\" SET auth_source = 'local' WHERE auth_source IS NULL;",
-        "UPDATE \"user\" SET role = 'user' WHERE role IS NULL OR role = 'viewer';",
-        "ALTER TABLE \"user\" ALTER COLUMN role SET DEFAULT 'user';",
-        "ALTER TABLE \"user\" ALTER COLUMN role SET NOT NULL;",
-        "CREATE UNIQUE INDEX IF NOT EXISTS user_email_key ON \"user\" (email);",
-        "CREATE UNIQUE INDEX IF NOT EXISTS user_oidc_subject_key ON \"user\" (oidc_subject);",
-        "ALTER TABLE recipe ADD COLUMN IF NOT EXISTS yeast_id INTEGER;",
-        "ALTER TABLE recipe ADD CONSTRAINT IF NOT EXISTS recipe_yeast_id_fkey FOREIGN KEY (yeast_id) REFERENCES yeast(id);",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS batch_size FLOAT;",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS fermentation_temp VARCHAR(50);",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS initial_gravity FLOAT;",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS final_gravity FLOAT;",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS abv FLOAT;",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS yeast_type VARCHAR(100);",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS backsweetened BOOLEAN;",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS flavor_additions TEXT;",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS pectic_used BOOLEAN;",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS notes TEXT;",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS water_type VARCHAR(50);",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS alcohol_type VARCHAR(20);",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS tosna_total FLOAT;",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS tosna_per_day FLOAT;",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS tosna_enabled BOOLEAN;",
-        "ALTER TABLE batch ADD COLUMN IF NOT EXISTS yeast_id INTEGER;",
-        "ALTER TABLE batch ADD CONSTRAINT IF NOT EXISTS batch_yeast_id_fkey FOREIGN KEY (yeast_id) REFERENCES yeast(id);",
-        "ALTER TABLE ingredient ADD COLUMN IF NOT EXISTS amount_per_gallon FLOAT;",
-        "ALTER TABLE ingredient ADD COLUMN IF NOT EXISTS unit VARCHAR(20);",
-        "ALTER TABLE ingredient ADD COLUMN IF NOT EXISTS note VARCHAR(200);",
-        "ALTER TABLE measurement ADD COLUMN IF NOT EXISTS ph FLOAT;",
-        "ALTER TABLE measurement ADD COLUMN IF NOT EXISTS temperature FLOAT;"
-    ]
-
-    for cmd in commands:
-        subprocess.run(
-            psql_command("-v", "ON_ERROR_STOP=1", "-c", cmd),
-            check=True,
-            env=env,
-        )
+    # Apply Alembic migration instead of raw SQL commands
+    subprocess.run(
+        ["flask", "db", "upgrade", "import_compat"],
+        check=True,
+        env=env,
+        cwd=os.getcwd(),
+    )

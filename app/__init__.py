@@ -17,7 +17,7 @@ from flask_wtf import CSRFProtect
 db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()
-limiter = Limiter(get_remote_address)
+limiter = Limiter(get_remote_address, storage_uri="redis://redis:6379")
 csrf = CSRFProtect()
 oauth = OAuth()
 

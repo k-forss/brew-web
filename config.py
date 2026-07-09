@@ -79,7 +79,7 @@ class Config:
     OIDC_EDITOR_GROUPS = env_list('OIDC_EDITOR_GROUPS')
     OIDC_USER_GROUPS = env_list('OIDC_USER_GROUPS')
     OIDC_DEFAULT_ROLE = os.environ.get('OIDC_DEFAULT_ROLE', RBAC_USER_ROLE).strip().lower() or RBAC_USER_ROLE
-    OIDC_ALLOW_UNMAPPED_USERS = env_bool('OIDC_ALLOW_UNMAPPED_USERS', True)
+    OIDC_ALLOW_UNMAPPED_USERS = env_bool('OIDC_ALLOW_UNMAPPED_USERS', False)
     LOCAL_USER_ROLES = [role.strip().lower() for role in env_list('LOCAL_USER_ROLES')] or [
         RBAC_ADMIN_ROLE,
         RBAC_EDITOR_ROLE,

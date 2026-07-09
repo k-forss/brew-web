@@ -53,6 +53,9 @@ When `OIDC_ENABLED=true`, you **MUST** configure the following environment varia
 - `OIDC_EDITOR_GROUPS`: Groups that should get editor role
 - `OIDC_USER_GROUPS`: Groups that should get user role (fallback)
 - `OIDC_DEFAULT_ROLE`: Default role if user's groups don't match (default: `user`)
+- `OIDC_ALLOW_UNMAPPED_USERS`: Allow users without matching groups to get default role (default: `false`)
+
+**Security Note**: `OIDC_ALLOW_UNMAPPED_USERS` defaults to `false` to prevent unauthorized access. If your IdP is misconfigured, users without proper group memberships will be denied access rather than granted a default role.
 
 **OIDC_ADMIN_GROUPS is required** - Without this, no users will get admin privileges via OIDC.
 
@@ -85,6 +88,8 @@ If you have custom JavaScript integrations that call these endpoints directly, y
    ```
 
 Alternatively, set `X-Requested-With: XMLHttpRequest` header for CSRF validation to pass.
+
+**Note**: CSRF protection is enabled on all routes. There are no CSRF exemptions in this version.
 
 ### Migration Notes
 

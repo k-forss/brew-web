@@ -295,11 +295,29 @@ def oidc_callback():
         if not claims:
             claims = oidc_client().userinfo()
     except OAuthError as error:
-        current_app.logger.warning('OIDC callback failed: %s', error)
+        # Structured logging for OIDC failure monitoring
+        current_app.logger.warning(
+            'OIDC_AUTH_FAILURE',
+            extra={
+                'error_type': 'OAuthError',
+                'error_message': str(error),
+                'error_code': getattr(error, 'error', None),
+                'remote_addr': request.remote_addr,
+            }
+        )
         flash('OIDC sign-in failed. Please try again.', 'danger')
         return redirect(url_for('auth_bp.login'))
-    except Exception:
-        current_app.logger.exception('Unexpected OIDC callback failure')
+    except Exception as error:
+        # Structured logging for unexpected OIDC failures
+        current_app.logger.error(
+            'OIDC_AUTH_FAILURE',
+            extra={
+                'error_type': type(error).__name__,
+                'error_message': str(error),
+                'remote_addr': request.remote_addr,
+            },
+            exc_info=True
+        )
         flash('OIDC sign-in failed. Please try again.', 'danger')
         return redirect(url_for('auth_bp.login'))
 
@@ -311,6 +329,9 @@ def oidc_callback():
 
     login_user(user)
     flash('Signed in with OIDC SSO.', 'success')
+    # Security: Intentionally redirect to index instead of 'next' parameter
+    # This prevents open redirect attacks where malicious 'next' URLs could
+    # redirect users to phishing sites after successful authentication
     return redirect(url_for('routes.index'))
 
 @auth_bp.route('/logout')
