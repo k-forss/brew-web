@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
 from app.utils import is_strong_password, local_login_enabled
-from .models import db
+from .models import User
 
 settings_bp = Blueprint('settings_bp', __name__, url_prefix='/settings')
 
@@ -19,6 +19,8 @@ def settings_customize():
 
         current_user.theme = theme
         current_user.font_size = font_size
+        # Import db inside function to avoid circular dependency risk
+        from .models import db
         db.session.commit()
 
         flash("Preferences saved.", "success")
@@ -46,6 +48,8 @@ def settings_password():
             flash('New password is too weak.', 'danger')
         else:
             current_user.set_password(new_password)
+            # Import db inside function to avoid circular dependency risk
+            from .models import db
             db.session.commit()
             flash('Password updated.', 'success')
             return redirect(url_for('routes.settings_bp.settings_password'))

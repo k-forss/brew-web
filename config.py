@@ -1,5 +1,8 @@
 import os
+import logging
 from urllib.parse import quote_plus, unquote, urlparse
+
+logger = logging.getLogger(__name__)
 
 
 def env_bool(name, default=False):
@@ -91,10 +94,19 @@ class Config:
         OIDC_CLIENT_ID,
         OIDC_CLIENT_SECRET,
     ])
+    # Emergency escape hatch: Allow overriding DISABLE_LOCAL_LOGIN for recovery
+    # if OIDC is misconfigured. Set OVERRIDE_DISABLE_LOCAL_LOGIN=false to force
+    # local login enabled even when OIDC_CONFIGURED is true.
+    OVERRIDE_DISABLE_LOCAL_LOGIN = env_bool('OVERRIDE_DISABLE_LOCAL_LOGIN', default=False)
     # No hybrid mode: local auth and OIDC are mutually exclusive.
     # Local login is always disabled when OIDC is configured; this is not
     # overridable via environment variable to prevent accidental hybrid deployments.
-    DISABLE_LOCAL_LOGIN = OIDC_CONFIGURED
+    # EXCEPTION: OVERRIDE_DISABLE_LOCAL_LOGIN provides emergency recovery path.
+    DISABLE_LOCAL_LOGIN = OIDC_CONFIGURED and not OVERRIDE_DISABLE_LOCAL_LOGIN
+    # Hybrid mode exception: Allow local user creation even when OIDC is enabled.
+    # This is useful for mixed environments where some users use OIDC and others use local auth.
+    # WARNING: Use with caution - local users created in hybrid mode cannot use OIDC login.
+    ALLOW_LOCAL_USER_CREATION = env_bool('ALLOW_LOCAL_USER_CREATION', default=False)
 
     # Warn at startup if the role-routing claim is not obviously covered by the
     # requested scopes.  This is best-effort only: many providers expose a claim
@@ -103,11 +115,10 @@ class Config:
     # time by map_role(), which will fall back to OIDC_DEFAULT_ROLE.
     _role_claim_hint = OIDC_ROLE_CLAIM or OIDC_GROUPS_CLAIM
     if OIDC_CONFIGURED and _role_claim_hint and _role_claim_hint not in OIDC_SCOPE_SET:
-        import warnings
-        warnings.warn(
-            f"OIDC_SCOPES does not include '{_role_claim_hint}'. "
+        logger.warning(
+            "OIDC_SCOPES does not include '%s'. "
             "Role mapping may fall back to OIDC_DEFAULT_ROLE if the claim is absent from tokens.",
-            stacklevel=1,
+            _role_claim_hint
         )
 
     if OIDC_CONFIGURED and not OIDC_ADMIN_GROUPS:

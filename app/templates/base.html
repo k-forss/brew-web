@@ -35,6 +35,8 @@
 						<li><a href="{{ url_for('routes.settings_bp.settings_customize', open='settings') }}">Customize</a></li>
             {% if local_login_enabled %}
 						<li><a href="{{ url_for('routes.settings_bp.settings_password', open='settings') }}">Change Password</a></li>
+            {% else %}
+            <li><small style="color: #888; font-style: italic;">Password managed by identity provider</small></li>
             {% endif %}
 						<li><a href="{{ url_for('auth_bp.logout') }}">🚪 Logout</a></li>
 					  </ul>

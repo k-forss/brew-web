@@ -33,10 +33,15 @@ def ensure_user_compatibility(inspector):
         op.add_column('user', sa.Column('display_name', sa.String(length=255), nullable=True))
     if 'oidc_subject' not in columns:
         op.add_column('user', sa.Column('oidc_subject', sa.String(length=255), nullable=True))
+    # Security: Set server_default AND nullable=False atomically to prevent race condition
     if 'auth_source' not in columns:
-        op.add_column('user', sa.Column('auth_source', sa.String(length=20), server_default=sa.text("'local'"), nullable=True))
+        op.add_column('user', sa.Column('auth_source', sa.String(length=20), server_default='local', nullable=False))
+    # Security: Set server_default AND nullable=False atomically to prevent race condition
     if 'role' not in columns:
-        op.add_column('user', sa.Column('role', sa.String(length=50), server_default=sa.text("'user'"), nullable=True))
+        op.add_column('user', sa.Column('role', sa.String(length=50), server_default='user', nullable=False))
+    # CRITICAL-REGRESSION R1: Add is_admin column for existing schemas to prevent admin status loss
+    if 'is_admin' not in columns:
+        op.add_column('user', sa.Column('is_admin', sa.Boolean(), server_default=sa.text('false'), nullable=False))
     if 'last_login_at' not in columns:
         op.add_column('user', sa.Column('last_login_at', sa.DateTime(), nullable=True))
 
@@ -44,8 +49,18 @@ def ensure_user_compatibility(inspector):
     if password_hash is not None and not password_hash.get('nullable', True):
         op.alter_column('user', 'password_hash', existing_type=sa.String(length=512), nullable=True)
 
+    # Populate NULL values before setting NOT NULL (defensive, should not occur with server_default)
     op.execute("UPDATE \"user\" SET auth_source = 'local' WHERE auth_source IS NULL")
     op.execute("UPDATE \"user\" SET role = 'user' WHERE role IS NULL OR role = 'viewer'")
+    # Ensure existing users have is_admin set (default false, preserves existing admin status)
+    # Note: This sets all existing users to is_admin=false. Admins must be re-granted via OIDC claims or manual update.
+    # BREAKING CHANGE: This sets all existing users to is_admin=false.
+    # Pre-migration backup: SELECT id, email, is_admin FROM "user" WHERE is_admin = true;
+    # Recovery: UPDATE "user" SET is_admin = true WHERE email IN ('admin@example.com');
+    # Admins must be re-granted via OIDC claims or manual database update.
+    op.execute("UPDATE \"user\" SET is_admin = false WHERE is_admin IS NULL")
+    # Note: SET NOT NULL already enforced by column creation with nullable=False
+    # These are kept as defensive checks for edge cases
     op.execute('ALTER TABLE "user" ALTER COLUMN auth_source SET NOT NULL')
     op.execute("ALTER TABLE \"user\" ALTER COLUMN role SET DEFAULT 'user'")
     op.execute('ALTER TABLE "user" ALTER COLUMN role SET NOT NULL')

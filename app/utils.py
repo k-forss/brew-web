@@ -67,11 +67,30 @@ def local_login_enabled():
     return not current_app.config.get('DISABLE_LOCAL_LOGIN', False)
 
 def check_for_updates():
+    # Prevent redirects and limit response size
+    MAX_VERSION_SIZE = 1024  # 1KB max for version file
     try:
         latest_url = "https://raw.githubusercontent.com/anndrox/brew-web/main/VERSION"
-        resp = requests.get(latest_url, timeout=5)
+        resp = requests.get(latest_url, timeout=5, allow_redirects=False)
+        
+        # Security: Reject redirects to prevent SSRF
+        if resp.is_redirect:
+            return {
+                "update_available": False,
+                "error": "Redirect not allowed",
+                "current": Config.VERSION,
+                "latest": "unknown"
+            }
 
         if resp.status_code == 200:
+            # Security: Limit response size to prevent DoS
+            if len(resp.content) > MAX_VERSION_SIZE:
+                return {
+                    "update_available": False,
+                    "error": "Response too large",
+                    "current": Config.VERSION,
+                    "latest": "unknown"
+                }
             latest_version = resp.text.strip()
             return {
                 "update_available": latest_version != Config.VERSION,

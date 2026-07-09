@@ -47,7 +47,7 @@
   <tr>
     <td>{{ user.username }}</td>
     <td>{{ role_label(user.role) }}</td>
-    <td>{{ user.auth_source }}</td>
+    <td>{{ getattr(user, 'auth_source', 'unknown') }}</td>
     <td>
       {% if local_login_enabled %}
       <form action="{{ url_for('routes.admin_bp.delete_user', user_id=user.id) }}" method="post" style="display:inline;">

@@ -72,6 +72,18 @@ reset_legacy_alembic_state() {
 }
 
 upgrade_database() {
+  # Pre-check: If existing schema detected, validate alembic state before running upgrade
+  # This prevents failures on legacy schemas with outdated alembic_version entries
+  if existing_schema_detected; then
+    echo "ℹ️ Existing schema detected, validating migration state..."
+    alembic_rev=$(psql_db -tAc "SELECT version_num FROM alembic_version LIMIT 1" 2>/dev/null | tr -d '[:space:]' || true)
+    if [ -n "$alembic_rev" ]; then
+      echo "ℹ️ Alembic version: $alembic_rev"
+    else
+      echo "⚠️ Existing schema but no alembic_version table - will reset and upgrade"
+    fi
+  fi
+  
   if run_upgrade; then
     return 0
   fi

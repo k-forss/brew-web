@@ -8,6 +8,11 @@
 <p><a class="btn btn-primary" href="{{ url_for('auth_bp.oidc_login') }}">Continue with OIDC</a></p>
 {% endif %}
 
+{% if oidc_enabled and local_login_enabled %}
+<hr style="margin: 20px 0;"/>
+<p style="color: #888; font-size: 0.9em;"><strong>Or</strong> login with username/password:</p>
+{% endif %}
+
 {% if local_login_enabled %}
 <form method="POST">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>

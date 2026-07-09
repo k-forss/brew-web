@@ -17,7 +17,9 @@ from flask_wtf import CSRFProtect
 db = SQLAlchemy()
 migrate = Migrate()
 login_manager = LoginManager()
-limiter = Limiter(get_remote_address, storage_uri="redis://redis:6379")
+#  Make Redis optional - use memory storage if Redis unavailable
+# This prevents app startup failure when Redis service is not configured
+limiter = None  # Initialized in create_app() with fallback logic
 csrf = CSRFProtect()
 oauth = OAuth()
 
@@ -29,7 +31,19 @@ def create_app():
     migrate.init_app(app, db)
     login_manager.init_app(app)
     login_manager.login_view = 'auth_bp.login'
-    limiter.init_app(app)
+    # Make Redis optional with memory fallback
+    # Try Redis first, fall back to memory storage if unavailable
+    global limiter
+    redis_uri = "redis://redis:6379"
+    try:
+        limiter = Limiter(get_remote_address, storage_uri=redis_uri)
+        limiter.init_app(app)
+        app.logger.info(f'✅ Rate limiter initialized with Redis storage')
+    except Exception as e:
+        # Fallback to memory storage - not suitable for production but allows app to start
+        limiter = Limiter(get_remote_address, storage_uri="memory://")
+        limiter.init_app(app)
+        app.logger.warning(f'⚠️ Rate limiter using memory storage (Redis unavailable): {e}')
     csrf.init_app(app)
     oauth.init_app(app)
 
@@ -58,6 +72,10 @@ def create_app():
             if not User.query.first() and not oidc_enabled():
                 return redirect(url_for("auth_bp.setup"))
         except Exception:
+            # Database not ready (migration in progress or schema incomplete)
+            # Allow access to setup endpoint to complete initialization
+            if request.endpoint == 'auth_bp.setup':
+                return
             return render_template("errors/import_wait.html"), 503
 
     @app.before_request

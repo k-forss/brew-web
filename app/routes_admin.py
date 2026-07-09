@@ -77,7 +77,8 @@ def update_base_url():
 @login_required
 @role_required(Config.RBAC_ADMIN_ROLE)
 def create_user():
-    if not local_login_enabled():
+    # Allow local user creation in hybrid mode if ALLOW_LOCAL_USER_CREATION is set
+    if not local_login_enabled() and not current_app.config.get('ALLOW_LOCAL_USER_CREATION', False):
         flash('User management is handled by your identity provider.', 'info')
         return redirect(url_for('routes.admin_bp.admin_settings'))
 
@@ -113,7 +114,8 @@ def create_user():
 @login_required
 @role_required(Config.RBAC_ADMIN_ROLE)
 def delete_user(user_id):
-    if not local_login_enabled():
+    # Allow local user management in hybrid mode if ALLOW_LOCAL_USER_CREATION is set
+    if not local_login_enabled() and not current_app.config.get('ALLOW_LOCAL_USER_CREATION', False):
         flash('User management is handled by your identity provider.', 'info')
         return redirect(url_for('routes.admin_bp.admin_settings'))
 
@@ -131,7 +133,8 @@ def delete_user(user_id):
 @login_required
 @role_required(Config.RBAC_ADMIN_ROLE)
 def update_password(user_id):
-    if not local_login_enabled():
+    # Allow local user management in hybrid mode if ALLOW_LOCAL_USER_CREATION is set
+    if not local_login_enabled() and not current_app.config.get('ALLOW_LOCAL_USER_CREATION', False):
         flash('Password management is handled by your identity provider.', 'info')
         return redirect(url_for('routes.admin_bp.admin_settings'))
 
@@ -367,19 +370,26 @@ def _stamp_head_with_fallback(env):
     try:
         subprocess.run(["flask", "db", "stamp", "head"], check=True, env=env, cwd=os.getcwd())
         return
-    except Exception:
-        pass
+    except Exception as e:
+        current_app.logger.warning(
+            "Migration stamp failed, using fallback: %s",
+            str(e),
+            exc_info=True
+        )
     # Fallback: manually set alembic_version to the current local head.
     rev = _latest_local_revision()
     if rev is None:
+        current_app.logger.error("Migration stamp fallback failed: no local revision found")
         return
     try:
         db.session.execute("CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) NOT NULL);")
         db.session.execute("DELETE FROM alembic_version;")
         db.session.execute("INSERT INTO alembic_version (version_num) VALUES (:rev)", {"rev": rev})
         db.session.commit()
-    except Exception:
+        current_app.logger.info("Migration stamp fallback successful: stamped revision %s", rev)
+    except Exception as e:
         db.session.rollback()
+        current_app.logger.error("Migration stamp fallback failed: %s", str(e), exc_info=True)
 
 def _apply_import_compat_fixes(env):
     """
@@ -410,12 +420,15 @@ def _apply_import_compat_fixes(env):
         if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name):
             raise ValueError(f"Invalid table name: {table_name}")
         
-        # Security: Use regex-validated table name with proper identifier quoting
-        # Table names are hardcoded, and regex ensures only safe characters are used
+        # Security note - Using string interpolation here is safe because:
+        # 1. Table names are hardcoded in required_tables list (no user input)
+        # 2. Regex validation ensures only safe alphanumeric characters
+        # 3. psql CLI doesn't support parameterized queries like psycopg2
+        # This is defense-in-depth: even if regex failed, hardcoded list prevents injection
         result = subprocess.run(
             psql_command(
                 "-tAc",
-                f"SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='{table_name}'"
+                f"SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name=quote_ident('{table_name}')"
             ),
             check=False,
             capture_output=True,

@@ -1,5 +1,4 @@
 import os
-import time
 from datetime import datetime
 from authlib.integrations.base_client.errors import OAuthError
 from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app
@@ -35,7 +34,18 @@ def oidc_client():
     return client
 
 
-def claim_values(claims, claim_name):
+from typing import Any, Dict, List, Union
+
+def claim_values(claims: Dict[str, Any], claim_name: str) -> List[str]:
+    """Extract values from OIDC claims, handling multiple types (str, list, tuple, set).
+    
+    Args:
+        claims: Dict of OIDC claims
+        claim_name: Name of the claim to extract
+        
+    Returns:
+        List of string values from the claim
+    """
     if not claim_name:
         return []
 
@@ -49,7 +59,17 @@ def claim_values(claims, claim_name):
     return [str(raw_value).strip()]
 
 
-def claim_bool(claims, claim_name, default=False):
+def claim_bool(claims: Dict[str, Any], claim_name: str, default: bool = False) -> bool:
+    """Extract boolean value from OIDC claims.
+    
+    Args:
+        claims: Dict of OIDC claims
+        claim_name: Name of the claim to extract
+        default: Default value if claim is missing
+        
+    Returns:
+        Boolean value from claim, or default if missing
+    """
     if not claim_name:
         return default
 
@@ -64,6 +84,26 @@ def claim_bool(claims, claim_name, default=False):
 
 
 def map_role(claims):
+    """
+    Map OIDC claims to Brew application role and admin status.
+    
+    Role mapping is based on group membership claims from the OIDC provider.
+    The function checks claims in priority order: admin → editor → user.
+    
+    Args:
+        claims: Dict of OIDC claims from userinfo endpoint
+        
+    Returns:
+        Tuple of (role: str, is_admin: bool)
+        
+    Raises:
+        ValueError: If OIDC_ALLOW_UNMAPPED_USERS is False and no role mapping matches
+        
+    Example:
+        claims = {'groups': ['brew-admins', 'brew-users']}
+        role, is_admin = map_role(claims)
+        # Returns: ('admin', True) if OIDC_ADMIN_GROUPS contains 'brew-admins'
+    """
     role_claim = current_app.config.get('OIDC_ROLE_CLAIM') or current_app.config.get('OIDC_GROUPS_CLAIM', 'groups')
     claim_set = set(claim_values(claims, role_claim))
     role_routes = (
@@ -93,6 +133,9 @@ def unique_username(candidate):
         suffix_text = f'-{suffix}'
         trimmed_base = base[:max(0, max_length - len(suffix_text))]
         username = f'{trimmed_base}{suffix_text}'
+        # Security: Validate total length after suffix append to prevent overflow
+        if len(username) > max_length:
+            raise ValueError('Unable to generate unique username within length limit')
         suffix += 1
     return username
 
@@ -105,6 +148,9 @@ def resolve_oidc_user(subject, email, email_verified):
     - Local accounts (auth_source != 'oidc')
     - OIDC accounts with different subject identifiers
     
+    CRITICAL: Email verification is checked BEFORE querying by email to prevent
+    account takeover via unverified email claims from OIDC provider.
+    
     Returns None if no matching user found (new user will be created).
     Raises ValueError if account linking conflict detected.
     """
@@ -113,6 +159,7 @@ def resolve_oidc_user(subject, email, email_verified):
         if user is not None:
             return user
 
+    # Security: Only query by email if email is verified to prevent account takeover
     if not email or not email_verified:
         return None
 
@@ -152,6 +199,34 @@ def sync_oidc_user(claims):
     display_name = claims.get(name_claim) or preferred_username
 
     role, is_admin = map_role(claims)
+
+    # Security: No First-User-Is-Admin, admin privileges
+    # MUST come from explicit OIDC claims. Log warning if admin granted without
+    # explicit admin group claim to help detect misconfigurations.
+    if is_admin:
+        admin_groups = current_app.config.get('OIDC_ADMIN_GROUPS', [])
+        claim_set = set(claim_values(claims, current_app.config.get('OIDC_ROLE_CLAIM') or current_app.config.get('OIDC_GROUPS_CLAIM', 'groups')))
+        if not admin_groups or not (set(admin_groups) & claim_set):
+            if not current_app.config.get('OIDC_ALLOW_ADMIN_WITHOUT_EXPLICIT_CLAIM', False):
+                current_app.logger.error(
+                    'OIDC_ADMIN_GRANT_WITHOUT_EXPLICIT_CLAIM',
+                    extra={
+                        'error_type': 'AdminGrantError',
+                        'error_message': 'Admin role granted without explicit admin group claim match (blocked by OIDC_ALLOW_ADMIN_WITHOUT_EXPLICIT_CLAIM)',
+                        'claim_set': list(claim_set),
+                        'expected_admin_groups': admin_groups,
+                    }
+                )
+                return None
+            current_app.logger.warning(
+                'OIDC_ADMIN_GRANT_WITHOUT_EXPLICIT_CLAIM',
+                extra={
+                    'error_type': 'AdminGrantWarning',
+                    'error_message': 'Admin role granted without explicit admin group claim match',
+                    'claim_set': list(claim_set),
+                    'expected_admin_groups': admin_groups,
+                }
+            )
 
     user = resolve_oidc_user(subject, email, email_verified)
 
@@ -212,6 +287,9 @@ def trigger_force_reset():
     with open(flag_path, 'w') as f:
         f.write('1')
 
+    # Set restrictive file permissions to prevent exploitation
+    os.chmod(flag_path, 0o600)
+
     flash("Forced password reset activated.", "success")
     return redirect(url_for('routes.index'))
 
@@ -267,7 +345,6 @@ def login():
             login_user(user)
             return redirect(url_for('routes.index'))
         else:
-            time.sleep(1)
             flash('Invalid credentials', 'danger')
 
     return render_template('login.html')
