@@ -17,8 +17,8 @@
 
 {% if result is not none %}
   <h3>Result:</h3>
-  {% if result == "Invalid input" %}
-    <p style="color:red;">Please enter valid numeric values.</p>
+  {% if result is mapping and result.error %}
+    <p style="color:red;">{{ result.error }}</p>
   {% else %}
     <p>You will need approximately <strong>{{ result.amount }} {{ result.unit }}</strong> of honey.</p>
   {% endif %}

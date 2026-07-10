@@ -16,7 +16,11 @@
 
 {% if result is not none %}
   <h3>Result</h3>
-  <p><strong>ABV:</strong> {{ result }}%</p>
+  {% if result is mapping and result.error %}
+    <p style="color:red;">{{ result.error }}</p>
+  {% else %}
+    <p><strong>ABV:</strong> {{ result }}%</p>
+  {% endif %}
 {% endif %}
 
 <a href="{{ url_for('routes.calculator_bp.calculator_index') }}">← Back to Calculators</a>

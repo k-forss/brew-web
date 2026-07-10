@@ -17,8 +17,8 @@
 
 {% if result is not none %}
   <h3>Result:</h3>
-  {% if result == "Invalid input" %}
-    <p style="color:red;">Please enter valid numeric values.</p>
+  {% if result is mapping and result.error %}
+    <p style="color:red;">{{ result.error }}</p>
   {% else %}
     <p>Use approximately <strong>{{ result.amount }} {{ result.unit }}</strong> of corn sugar (dextrose).</p>
   {% endif %}

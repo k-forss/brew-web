@@ -1,12 +1,14 @@
 from flask import Blueprint, render_template
 from flask_login import login_required
-from .models import Batch
 from sqlalchemy import func
-from datetime import datetime
 
-stats_bp = Blueprint('stats_bp', __name__, url_prefix='/stats')
+from .models import Batch
 
-@stats_bp.route('/')
+
+stats_bp = Blueprint("stats_bp", __name__, url_prefix="/stats")
+
+
+@stats_bp.route("/")
 @login_required
 def view_stats():
     # Only include batches with ABV values for the ABV chart
@@ -17,21 +19,29 @@ def view_stats():
 
     # Count of batches started over time (e.g. by day)
     batch_counts = (
-        Batch.query
-        .with_entities(func.date(Batch.start_date).label("date"), func.count().label("count"))
+        Batch.query.with_entities(
+            func.date(Batch.start_date).label("date"), func.count().label("count")
+        )
         .filter(Batch.start_date.isnot(None))
         .group_by(func.date(Batch.start_date))
         .order_by(func.date(Batch.start_date))
         .all()
     )
 
-    dates = [row.date.strftime('%Y-%m-%d') for row in batch_counts]
+    dates = []
+    for row in batch_counts:
+        date_val = row.date
+        if hasattr(date_val, "strftime"):
+            dates.append(date_val.strftime("%Y-%m-%d"))
+        else:
+            # SQLite returns string from func.date()
+            dates.append(str(date_val))
     counts = [row.count for row in batch_counts]
 
     return render_template(
-        'stats.html',
+        "stats.html",
         batch_names=batch_names,
         abv_values=abv_values,
         dates=dates,
-        counts=counts
+        counts=counts,
     )

@@ -5,6 +5,7 @@
 [![Flask](https://img.shields.io/badge/framework-Flask-yellow)](#)
 [![License](https://img.shields.io/badge/license-MIT-green)](#)
 [![Status](https://img.shields.io/badge/status-stable-brightgreen)](#)
+[![CI](https://github.com/k-forss/brew-web/actions/workflows/ci.yml/badge.svg)](https://github.com/k-forss/brew-web/actions/workflows/ci.yml)
 
 Self-hosted web app for managing mead brewing recipes, batches, and calculators.
 
@@ -106,6 +107,87 @@ brew-web/
   ```
 - Customize UI: edit `base.html`, `admin.html`, `static/style.css`
 - Logs: `/logs/brewweb.log`
+
+---
+
+## Testing
+
+[![Testing](https://img.shields.io/badge/testing-pytest-green)](#)
+[![Coverage](https://img.shields.io/badge/coverage-80%25-yellow)](#)
+
+### Running Tests
+
+**Quick test run:**
+```bash
+./scripts/run-tests.sh
+```
+
+**With coverage report:**
+```bash
+./scripts/coverage-report.sh
+```
+
+**Direct pytest:**
+```bash
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=app --cov=config --cov-report=term-missing
+
+# Run specific test file
+pytest tests/test_models.py
+
+# Run with verbose output
+pytest -v
+
+# Run only unit tests
+pytest -m unit
+```
+
+### Test Infrastructure
+
+- **Framework**: pytest with pytest-flask-sqlalchemy
+- **Database**: Ephemeral PostgreSQL (auto-started) or SQLite fallback
+- **Coverage**: 80% minimum threshold (90% for core logic)
+- **Fixtures**: 
+  - `app` - Flask application
+  - `client` - Test client
+  - `db_session` - Transactional database session
+  - `test_user` / `admin_user` - Test users
+  - `authenticated_client` - Logged-in test client
+  - `mock_requests` - Mocked external HTTP calls
+
+### Writing Tests
+
+```python
+def test_example(client, test_user):
+    response = client.get('/app/')
+    assert response.status_code == 200
+
+def test_authenticated_route(authenticated_client):
+    client, user = authenticated_client
+    response = client.get('/app/batches')
+    assert response.status_code == 200
+```
+
+### Coverage Reports
+
+After running `./scripts/coverage-report.sh`:
+- **HTML**: `htmlcov/index.html`
+- **XML**: `coverage.xml` (for CI integration)
+- **Terminal**: Shown after test run
+
+---
+
+## CI/CD
+
+This project uses GitHub Actions for continuous integration and deployment:
+
+- **CI Pipeline**: Runs on every push and PR - linting (ruff), type checking (mypy), and tests (pytest) with 80% coverage threshold across Python 3.10-3.12
+- **Docker Build**: Builds and pushes Docker images to GHCR on tags and main branch
+- **Security Scanning**: Runs Bandit security analysis and dependency audits with pip-audit
+- **Dependabot**: Automated weekly updates for Python dependencies, GitHub Actions, and Docker
 
 ---
 
