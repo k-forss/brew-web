@@ -1,19 +1,20 @@
-from . import db
-from flask_login import UserMixin
-from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
+
+from flask_login import UserMixin
+from werkzeug.security import check_password_hash, generate_password_hash
+
 from app import db
 
-class User(db.Model, UserMixin):
 
+class User(db.Model, UserMixin):  # type: ignore
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(512), nullable=False)
     is_admin = db.Column(db.Boolean, default=False)
-    role = db.Column(db.String(50), default='user')
-    theme = db.Column(db.String(20), default='dark')
-    font_size = db.Column(db.String(10), default='16px')
-    
+    role = db.Column(db.String(50), default="user")
+    theme = db.Column(db.String(20), default="dark")
+    font_size = db.Column(db.String(10), default="16px")
+
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
 
@@ -24,7 +25,7 @@ class User(db.Model, UserMixin):
         return f"<User {self.username}>"
 
 
-class Recipe(db.Model):
+class Recipe(db.Model):  # type: ignore
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     alcohol_type = db.Column(db.String(20))
@@ -33,20 +34,16 @@ class Recipe(db.Model):
     instructions = db.Column(db.Text)
     notes = db.Column(db.Text)
     water_type = db.Column(db.String(50))
-    yeast_id = db.Column(db.Integer, db.ForeignKey('yeast.id'))
-    yeast = db.relationship('Yeast')
+    yeast_id = db.Column(db.Integer, db.ForeignKey("yeast.id"))
+    yeast = db.relationship("Yeast")
 
-    batches = db.relationship(
-        'Batch',
-        backref='recipe',
-        lazy=True,
-        cascade='all, delete-orphan'
-    )
+    batches = db.relationship("Batch", backref="recipe", lazy=True, cascade="all, delete-orphan")
 
-class Batch(db.Model):
+
+class Batch(db.Model):  # type: ignore
     id = db.Column(db.Integer, primary_key=True)
-    recipe_id = db.Column(db.Integer, db.ForeignKey('recipe.id'), nullable=False)
-    events = db.relationship('CalendarEvent', backref='batch', lazy=True)
+    recipe_id = db.Column(db.Integer, db.ForeignKey("recipe.id"), nullable=False)
+    events = db.relationship("CalendarEvent", backref="batch", lazy=True)
     name = db.Column(db.String(100), nullable=False)
     start_date = db.Column(db.DateTime)
     end_date = db.Column(db.DateTime)
@@ -65,38 +62,40 @@ class Batch(db.Model):
     tosna_total = db.Column(db.Float, comment="Total Fermaid O needed in grams")
     tosna_per_day = db.Column(db.Float, comment="Fermaid O per day over 4 days")
     tosna_enabled = db.Column(db.Boolean, default=False)
-    yeast_id = db.Column(db.Integer, db.ForeignKey('yeast.id'))
-    yeast = db.relationship('Yeast')
+    yeast_id = db.Column(db.Integer, db.ForeignKey("yeast.id"))
+    yeast = db.relationship("Yeast")
 
     measurements = db.relationship(
-        'Measurement',
-        backref='batch',
-        lazy=True,
-        cascade='all, delete-orphan'
+        "Measurement", backref="batch", lazy=True, cascade="all, delete-orphan"
     )
-    
-class CalendarEvent(db.Model):
+
+
+class CalendarEvent(db.Model):  # type: ignore
     id = db.Column(db.Integer, primary_key=True)
-    batch_id = db.Column(db.Integer, db.ForeignKey('batch.id'))
+    batch_id = db.Column(db.Integer, db.ForeignKey("batch.id"))
     title = db.Column(db.String(100), nullable=False)
     start = db.Column(db.Date, nullable=False)
     end = db.Column(db.Date, nullable=True)
     description = db.Column(db.Text)
     all_day = db.Column(db.Boolean, default=True)
-    created_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    created_by = db.Column(db.Integer, db.ForeignKey("user.id"))
     note = db.Column(db.Text)
 
-class Ingredient(db.Model):
+
+class Ingredient(db.Model):  # type: ignore
     id = db.Column(db.Integer, primary_key=True)
-    recipe_id = db.Column(db.Integer, db.ForeignKey('recipe.id'), nullable=False)
+    recipe_id = db.Column(db.Integer, db.ForeignKey("recipe.id"), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     amount_per_gallon = db.Column(db.Float, nullable=False)
     unit = db.Column(db.String(20), nullable=False)
     note = db.Column(db.String(200))
 
-    recipe = db.relationship('Recipe', backref=db.backref('ingredients', cascade='all, delete-orphan'))
+    recipe = db.relationship(
+        "Recipe", backref=db.backref("ingredients", cascade="all, delete-orphan")
+    )
 
-class Yeast(db.Model):
+
+class Yeast(db.Model):  # type: ignore
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     alcohol_type = db.Column(db.String(20), nullable=False)
@@ -108,16 +107,18 @@ class Yeast(db.Model):
     attenuation = db.Column(db.String(10))
     is_default = db.Column(db.Boolean, default=False)
 
-class Measurement(db.Model):
+
+class Measurement(db.Model):  # type: ignore
     id = db.Column(db.Integer, primary_key=True)
-    batch_id = db.Column(db.Integer, db.ForeignKey('batch.id'), nullable=False)
+    batch_id = db.Column(db.Integer, db.ForeignKey("batch.id"), nullable=False)
     date = db.Column(db.DateTime, default=datetime.utcnow)
     gravity = db.Column(db.Float)
     ph = db.Column(db.Float)
     temperature = db.Column(db.Float)
     notes = db.Column(db.Text)
-    
-class AppSettings(db.Model):
+
+
+class AppSettings(db.Model):  # type: ignore
     id = db.Column(db.Integer, primary_key=True)
     base_url = db.Column(db.String(255))
-    unit_preference = db.Column(db.String(10), default='imperial')  # 'imperial' or 'metric'
+    unit_preference = db.Column(db.String(10), default="imperial")  # 'imperial' or 'metric'

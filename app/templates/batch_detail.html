@@ -117,8 +117,12 @@
 {% if batch.tosna_enabled %}
   <hr/>
   <h3>TOSNA Schedule</h3>
+  {% if batch.tosna_total %}
   <p><strong>Total:</strong> {{ batch.tosna_total }} g (~{{ (batch.tosna_total / 1.25) | round(2) }} tsp)</p>
+  {% endif %}
+  {% if batch.tosna_per_day %}
   <p><strong>Per Day:</strong> {{ batch.tosna_per_day }} g (~{{ (batch.tosna_per_day / 1.25) | round(2) }} tsp)</p>
+  {% endif %}
 
   {% if batch.start_date %}
     <h4>Schedule:</h4>
